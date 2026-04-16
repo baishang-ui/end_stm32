@@ -1,0 +1,26 @@
+from building import *
+import os
+
+cwd     = GetCurrentDir()
+src     = []
+CPPPATH = [cwd]
+
+for root, dirs, files in os.walk(cwd):
+    if root not in CPPPATH:
+        CPPPATH.append(root)
+
+    rel_root = os.path.relpath(root, cwd)
+    rel_root = '' if rel_root == '.' else rel_root.replace('\\', '/')
+
+    for pattern in ('*.c', '*.cpp', '*.cc', '*.cxx'):
+        if rel_root:
+            src += Glob(rel_root + '/' + pattern)
+        else:
+            src += Glob(pattern)
+
+if GetDepend(['PKG_USING_RTDUINO']) and not GetDepend(['RTDUINO_NO_SETUP_LOOP']):
+    src += ['arduino_main.cpp']
+
+group = DefineGroup('Applications', src, depend = [''], CPPPATH = CPPPATH)
+
+Return('group')
