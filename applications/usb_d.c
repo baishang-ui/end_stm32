@@ -210,7 +210,7 @@ rt_err_t usb_hid_send_consumer_usage(rt_uint16_t usage)
         return -RT_EINVAL;
     }
 
-    if (usb_hid_can_send() == RT_FALSE)
+    if (usb_hid_is_ready() == RT_FALSE)
     {
         return -RT_EBUSY;
     }
@@ -218,9 +218,7 @@ rt_err_t usb_hid_send_consumer_usage(rt_uint16_t usage)
     written = rt_device_write(s_hid_dev, USB_HID_REPORT_ID_MEDIA, report, sizeof(report));
     if (written != (rt_ssize_t)sizeof(report))
     {
-        rt_kprintf("[USB HID] write failed: usage=0x%04x ret=%ld\n",
-                   usage, (long)written);
-        return -RT_ERROR;
+        return -RT_EBUSY;
     }
 
     return RT_EOK;

@@ -578,11 +578,6 @@ static void ui_pc_service_hid(rt_bool_t usb_ready)
         return;
     }
 
-    if (usb_hid_can_send() == RT_FALSE)
-    {
-        return;
-    }
-
     if (s_pc_release_pending != 0U)
     {
         if (usb_hid_send_consumer_usage(0U) == RT_EOK)
