@@ -85,6 +85,8 @@ typedef struct
 static aliyun_iot_ctx_t g_ali;
 static dht11_sample_t g_dht11_last_sample = {235, 500};
 static rt_bool_t g_dht11_has_sample = RT_FALSE;
+static rt_err_t g_dht11_last_error = -RT_EEMPTY;
+static rt_tick_t g_dht11_last_tick = 0;
 static rt_bool_t g_ali_thread_started = RT_FALSE;
 static char g_ali_recv_topic[ALIYUN_IOT_RECV_TOPIC_MAX];
 static char g_ali_recv_buf[ALIYUN_IOT_RECV_BUF_MAX];
@@ -832,14 +834,18 @@ static rt_err_t ali_publish_sample(const aliyun_iot_auth_t *auth, rt_uint32_t se
     if (ret == RT_EOK)
     {
         g_dht11_has_sample = RT_TRUE;
+        g_dht11_last_error = RT_EOK;
+        g_dht11_last_tick = rt_tick_get();
     }
     else if (!g_dht11_has_sample)
     {
+        g_dht11_last_error = ret;
         rt_kprintf("[DHT11] read failed before first valid sample: %d\r\n", ret);
         return ret;
     }
     else
     {
+        g_dht11_last_error = ret;
         rt_kprintf("[DHT11] read failed, keep last sample: %d\r\n", ret);
     }
 
@@ -902,9 +908,7 @@ static void ali_iot_thread(void *parameter)
 
     RT_UNUSED(parameter);
 
-    todo_snapshot_init();
     ali_report_queue_init();
-    dht11_init();
     ali_build_auth(&g_ali.auth);
     rt_kprintf("[ALI] host=%s\r\n", g_ali.auth.host);
     rt_kprintf("[ALI] pub=%s\r\n", g_ali.auth.topic);
@@ -1108,5 +1112,19 @@ void aliyun_iot_get_status(aliyun_iot_status_t *status)
     rt_strncpy(status->topic, g_ali.auth.topic, sizeof(status->topic) - 1);
     rt_strncpy(status->sub_topic, ALIYUN_IOT_SUB_TOPIC, sizeof(status->sub_topic) - 1);
     rt_strncpy(status->client_id, g_ali.auth.client_id, sizeof(status->client_id) - 1);
+}
+
+void aliyun_iot_get_sensor_status(aliyun_iot_sensor_status_t *status)
+{
+    if (status == RT_NULL)
+    {
+        return;
+    }
+
+    memset(status, 0, sizeof(*status));
+    status->has_sample = g_dht11_has_sample;
+    status->last_read_error = g_dht11_last_error;
+    status->sample_tick = g_dht11_last_tick;
+    status->sample = g_dht11_last_sample;
 }
 

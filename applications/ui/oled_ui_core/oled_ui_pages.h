@@ -11,12 +11,14 @@ extern MenuItem MainMenuItems[];
 extern MenuItem TodoMenuItems[];
 extern MenuItem WiFiMenuItems[];
 extern MenuItem WiFiScanMenuItems[];
+extern MenuItem StatusMenuItems[];
 extern MenuItem SettingsMenuItems[];
 
 extern MenuPage MainMenuPage;
 extern MenuPage TodoMenuPage;
 extern MenuPage WiFiMenuPage;
 extern MenuPage WiFiScanMenuPage;
+extern MenuPage StatusMenuPage;
 extern MenuPage SettingsMenuPage;
 
 void oled_ui_prepare_pages(void);

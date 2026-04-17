@@ -12,6 +12,7 @@
 #define UI_TODO_LINE_LEN    80
 #define UI_AP_LINE_LEN      48
 #define UI_WIFI_SSID_LEN    32
+#define UI_STATUS_LINE_LEN  32
 
 typedef enum
 {
@@ -35,8 +36,7 @@ extern bool ColorMode;
 
 static char s_todo_lines[TODO_SNAPSHOT_MAX_ITEMS][UI_TODO_LINE_LEN];
 static char s_ap_lines[UI_SCAN_MAX_APS][UI_AP_LINE_LEN];
-static char s_ssid_line[40];
-static char s_ip_line[40];
+static char s_status_lines[4][UI_STATUS_LINE_LEN];
 static rt_uint32_t s_todo_display_count = 0;
 static rt_size_t s_scan_display_count = 0;
 static volatile rt_uint8_t s_wifi_job_busy = 0;
@@ -47,10 +47,12 @@ static MenuPage *s_last_page = RT_NULL;
 static void ui_handle_wifi_scan_selection(void);
 static void ui_toggle_todo_completion(void);
 static void ui_clamp_page_cursor(MenuPage *page, rt_uint32_t count);
+static void ui_sync_status_items(void);
 
 static void ui_copy_visible_text(char *dst, rt_size_t len, const char *src)
 {
     rt_size_t used = 0;
+    rt_size_t copy_len = 0;
 
     if ((dst == RT_NULL) || (len == 0U))
     {
@@ -76,30 +78,39 @@ static void ui_copy_visible_text(char *dst, rt_size_t len, const char *src)
 
         if ((ch & 0x80U) != 0U)
         {
-            if ((used + 1U) < len)
-            {
-                dst[used++] = '?';
-            }
-
             if ((ch & 0xF0U) == 0xF0U)
             {
-                src += 4;
+                copy_len = 4U;
             }
             else if ((ch & 0xE0U) == 0xE0U)
             {
-                src += 3;
+                copy_len = 3U;
             }
             else if ((ch & 0xC0U) == 0xC0U)
             {
-                src += 2;
+                copy_len = 2U;
             }
             else
             {
-                src += 1;
+                copy_len = 1U;
+            }
+
+            if ((used + copy_len) >= len)
+            {
+                break;
+            }
+
+            while (copy_len-- > 0U)
+            {
+                dst[used++] = *src++;
             }
             continue;
         }
 
+        if (ch >= 32U)
+        {
+            dst[used++] = (char)ch;
+        }
         src++;
     }
 
@@ -383,64 +394,77 @@ static void ui_draw_main_aux(void)
     ui_set_header("OLED UI", "EC11");
 }
 
-static void ui_draw_todo_aux(void)
+static void ui_sync_status_items(void)
 {
-    todo_snapshot_t snapshot;
-    char right[20];
+    aliyun_iot_status_t ali_status;
+    aliyun_iot_sensor_status_t sensor_status;
+    rt_int32_t temp_int;
+    rt_int32_t temp_frac;
+    rt_int32_t humi_int;
+    rt_int32_t humi_frac;
+    rt_tick_t age_tick = 0;
+    rt_uint32_t age_ms = 0;
+    rt_size_t i;
 
-    todo_snapshot_get(&snapshot);
-    rt_snprintf(right, sizeof(right), "%u/%u", (unsigned int)snapshot.completed_count, (unsigned int)snapshot.count);
-    ui_set_header("TODO", right);
-}
+    aliyun_iot_get_status(&ali_status);
+    aliyun_iot_get_sensor_status(&sensor_status);
 
-static void ui_draw_wifi_aux(void)
-{
-    esp01s_status_t status;
-    char right[20];
-
-    esp01s_get_status(&status);
-    rt_snprintf(right, sizeof(right), "%s", status.connected ? "UP" : "DOWN");
-    ui_set_header("WIFI", right);
-
-    ui_copy_visible_text(s_ssid_line, sizeof(s_ssid_line), status.ssid);
-    ui_copy_visible_text(s_ip_line, sizeof(s_ip_line), status.ip);
-    if (s_ssid_line[0] == '\0')
+    if (sensor_status.sample_tick != 0)
     {
-        rt_strncpy(s_ssid_line, "-", sizeof(s_ssid_line) - 1U);
-        s_ssid_line[sizeof(s_ssid_line) - 1U] = '\0';
-    }
-    if (s_ip_line[0] == '\0')
-    {
-        rt_strncpy(s_ip_line, "-", sizeof(s_ip_line) - 1U);
-        s_ip_line[sizeof(s_ip_line) - 1U] = '\0';
+        age_tick = rt_tick_get() - sensor_status.sample_tick;
+        age_ms = (rt_uint32_t)(((rt_uint64_t)age_tick * 1000U) / RT_TICK_PER_SECOND);
     }
 
-    OLED_PrintfArea(0, 11, 128, 8, 0, 11, OLED_6X8_HALF, "S:%s", s_ssid_line);
-    OLED_PrintfArea(0, 19, 128, 8, 0, 19, OLED_6X8_HALF, "IP:%s", s_ip_line);
-    OLED_PrintfArea(0, 27, 128, 8, 0, 27, OLED_6X8_HALF, "R:%d  B:%lu", status.rssi, (unsigned long)status.baud_rate);
-}
+    temp_int = sensor_status.sample.temperature_x10 / 10;
+    temp_frac = sensor_status.sample.temperature_x10 % 10;
+    if (temp_frac < 0)
+    {
+        temp_frac = -temp_frac;
+    }
 
-static void ui_draw_wifi_scan_aux(void)
-{
-    esp01s_status_t status;
-    char right[20];
+    humi_int = sensor_status.sample.humidity_x10 / 10;
+    humi_frac = sensor_status.sample.humidity_x10 % 10;
+    if (humi_frac < 0)
+    {
+        humi_frac = -humi_frac;
+    }
 
-    esp01s_get_status(&status);
-    rt_snprintf(right, sizeof(right), "%s", status.scan_busy ? "BUSY" : "READY");
-    ui_set_header("AP LIST", right);
-}
+    if (sensor_status.has_sample)
+    {
+        rt_snprintf(s_status_lines[0], sizeof(s_status_lines[0]), "TEMP: %d.%dC", temp_int, temp_frac);
+        rt_snprintf(s_status_lines[1], sizeof(s_status_lines[1]), "HUMI: %d.%d%%", humi_int, humi_frac);
+        rt_snprintf(s_status_lines[3], sizeof(s_status_lines[3]), "AGE:%lums E:%d",
+                    (unsigned long)age_ms,
+                    sensor_status.last_read_error);
+    }
+    else
+    {
+        rt_snprintf(s_status_lines[0], sizeof(s_status_lines[0]), "TEMP: --.-C");
+        rt_snprintf(s_status_lines[1], sizeof(s_status_lines[1]), "HUMI: --.-%%");
+        rt_snprintf(s_status_lines[3], sizeof(s_status_lines[3]), "WAIT E:%d",
+                    sensor_status.last_read_error);
+    }
 
-static void ui_draw_settings_aux(void)
-{
-    char right[20];
+    rt_snprintf(s_status_lines[2], sizeof(s_status_lines[2]), "MQTT: %s/%lu",
+                ali_status.mqtt_connected ? "UP" : "DOWN",
+                (unsigned long)ali_status.publish_count);
 
-    rt_snprintf(right, sizeof(right), "%d", OLED_UI_Brightness);
-    ui_set_header("SETTINGS", right);
+    for (i = 0; i < 4U; i++)
+    {
+        StatusMenuItems[i].General_item_text = s_status_lines[i];
+        StatusMenuItems[i].General_callback = RT_NULL;
+        StatusMenuItems[i].General_SubMenuPage = RT_NULL;
+        StatusMenuItems[i].List_BoolRadioBox = RT_NULL;
+        StatusMenuItems[i].List_IntBox = RT_NULL;
+        StatusMenuItems[i].List_FloatBox = RT_NULL;
+    }
+    StatusMenuItems[4].General_item_text = RT_NULL;
 }
 
 MenuItem MainMenuItems[] = {
     { .General_item_text = "TODO", .General_callback = RT_NULL, .General_SubMenuPage = &TodoMenuPage, .Tiles_Icon = Image_window },
     { .General_item_text = "WIFI", .General_callback = RT_NULL, .General_SubMenuPage = &WiFiMenuPage, .Tiles_Icon = Image_wechat },
+    { .General_item_text = "STAT", .General_callback = RT_NULL, .General_SubMenuPage = &StatusMenuPage, .Tiles_Icon = Image_window },
     { .General_item_text = "SET",  .General_callback = RT_NULL, .General_SubMenuPage = &SettingsMenuPage, .Tiles_Icon = Image_setings },
     { .General_item_text = RT_NULL },
 };
@@ -463,6 +487,14 @@ MenuItem WiFiScanMenuItems[UI_SCAN_MAX_APS + 2] = {
     { .General_item_text = RT_NULL },
 };
 
+MenuItem StatusMenuItems[5] = {
+    { .General_item_text = "TEMP: --.-C" },
+    { .General_item_text = "HUMI: --.-%" },
+    { .General_item_text = "MQTT: DOWN/0" },
+    { .General_item_text = "WAIT E:0" },
+    { .General_item_text = RT_NULL },
+};
+
 MenuItem SettingsMenuItems[] = {
     { .General_item_text = "BRIGHTNESS", .General_callback = ui_open_brightness_window, .General_SubMenuPage = RT_NULL, .List_IntBox = &OLED_UI_Brightness },
     { .General_item_text = RT_NULL },
@@ -470,7 +502,7 @@ MenuItem SettingsMenuItems[] = {
 
 MenuPage MainMenuPage = {
     .General_MenuType = MENU_TYPE_TILES,
-    .General_MovingSpeed = 5.6f,
+    .General_MovingSpeed = 7.2f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
     .General_MoveStyle = PID_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
@@ -486,68 +518,85 @@ MenuPage MainMenuPage = {
 
 MenuPage TodoMenuPage = {
     .General_MenuType = MENU_TYPE_LIST,
-    .General_MovingSpeed = 5.6f,
+    .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
     .General_MoveStyle = PID_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &MainMenuPage,
     .General_MenuItems = TodoMenuItems,
     .General_LineSpace = 4,
-    .General_ShowAuxiliaryFunction = ui_draw_todo_aux,
-    .List_MenuArea = {0, 12, 128, 52},
+    .General_ShowAuxiliaryFunction = RT_NULL,
+    .List_MenuArea = {0, 0, 128, 64},
     .List_IfDrawFrame = false,
-    .List_IfDrawLinePerfix = false,
+    .List_IfDrawLinePerfix = true,
     .List_StartPointX = 2,
     .List_StartPointY = 2,
 };
 
 MenuPage WiFiMenuPage = {
     .General_MenuType = MENU_TYPE_LIST,
-    .General_MovingSpeed = 5.6f,
+    .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
     .General_MoveStyle = PID_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &MainMenuPage,
     .General_MenuItems = WiFiMenuItems,
     .General_LineSpace = 4,
-    .General_ShowAuxiliaryFunction = ui_draw_wifi_aux,
-    .List_MenuArea = {0, 36, 128, 28},
+    .General_ShowAuxiliaryFunction = RT_NULL,
+    .List_MenuArea = {0, 0, 128, 64},
     .List_IfDrawFrame = false,
-    .List_IfDrawLinePerfix = false,
+    .List_IfDrawLinePerfix = true,
     .List_StartPointX = 2,
-    .List_StartPointY = 1,
+    .List_StartPointY = 2,
 };
 
 MenuPage WiFiScanMenuPage = {
     .General_MenuType = MENU_TYPE_LIST,
-    .General_MovingSpeed = 5.6f,
+    .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
     .General_MoveStyle = PID_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &WiFiMenuPage,
     .General_MenuItems = WiFiScanMenuItems,
     .General_LineSpace = 4,
-    .General_ShowAuxiliaryFunction = ui_draw_wifi_scan_aux,
-    .List_MenuArea = {0, 12, 128, 52},
+    .General_ShowAuxiliaryFunction = RT_NULL,
+    .List_MenuArea = {0, 0, 128, 64},
     .List_IfDrawFrame = false,
-    .List_IfDrawLinePerfix = false,
+    .List_IfDrawLinePerfix = true,
+    .List_StartPointX = 2,
+    .List_StartPointY = 2,
+};
+
+MenuPage StatusMenuPage = {
+    .General_MenuType = MENU_TYPE_LIST,
+    .General_MovingSpeed = 6.8f,
+    .General_CursorStyle = NOT_SHOW,
+    .General_MoveStyle = PID_CURVE,
+    .General_FontSize = OLED_UI_FONT_12,
+    .General_ParentMenuPage = &MainMenuPage,
+    .General_MenuItems = StatusMenuItems,
+    .General_LineSpace = 4,
+    .General_ShowAuxiliaryFunction = RT_NULL,
+    .List_MenuArea = {0, 0, 128, 64},
+    .List_IfDrawFrame = false,
+    .List_IfDrawLinePerfix = true,
     .List_StartPointX = 2,
     .List_StartPointY = 2,
 };
 
 MenuPage SettingsMenuPage = {
     .General_MenuType = MENU_TYPE_LIST,
-    .General_MovingSpeed = 5.6f,
+    .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
     .General_MoveStyle = PID_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &MainMenuPage,
     .General_MenuItems = SettingsMenuItems,
     .General_LineSpace = 4,
-    .General_ShowAuxiliaryFunction = ui_draw_settings_aux,
-    .List_MenuArea = {0, 12, 128, 52},
+    .General_ShowAuxiliaryFunction = RT_NULL,
+    .List_MenuArea = {0, 0, 128, 64},
     .List_IfDrawFrame = false,
-    .List_IfDrawLinePerfix = false,
+    .List_IfDrawLinePerfix = true,
     .List_StartPointX = 2,
     .List_StartPointY = 2,
 };
@@ -556,6 +605,7 @@ void oled_ui_prepare_pages(void)
 {
     ui_sync_todo_items();
     ui_sync_scan_items();
+    ui_sync_status_items();
 
     if (CurrentMenuPage == &TodoMenuPage)
     {
@@ -568,6 +618,10 @@ void oled_ui_prepare_pages(void)
         {
             ui_start_wifi_job(WIFI_JOB_SCAN, RT_NULL, 0U);
         }
+    }
+    else if (CurrentMenuPage == &StatusMenuPage)
+    {
+        ui_clamp_page_cursor(&StatusMenuPage, 4U);
     }
 
     s_last_page = CurrentMenuPage;

@@ -280,10 +280,21 @@ void oled_ui_animate_scalar(float *CurrentNum, float *TargetNum, float *ErrorNum
 	}
 	//如果当前的动画方式是PID_CURVE方式
 	if(CurrentMenuPage->General_MoveStyle ==  PID_CURVE){
-		/*这是一种奇特的方法，因为当当前值等于目标值的时候，其他项置零了，但是积分项并没有被置零。根据实际现象，这样的效果是最好的。 */
-		//如果用户将速度设置为0，那么当前值直接等于目标值，其他所有中间值置零
+		float smooth_time;
+		float delta_time;
+		float omega;
+		float x;
+		float exp_factor;
+		float change;
+		float target;
+		float max_speed;
+		float max_change;
+		float temp;
+		float original_to;
+		float output;
+		float velocity;
+
 		if(CurrentMenuPage->General_MovingSpeed <= 0){
-
 			*ErrorNum = 0;
 			*LastErrorNum = 0;
 			*DerivativeNum = 0;
@@ -291,39 +302,55 @@ void oled_ui_animate_scalar(float *CurrentNum, float *TargetNum, float *ErrorNum
 		    *CurrentNum = *TargetNum;
 			return;
 		}
-		// 定义PID参数
-		// 收紧积分、增强阻尼，减弱切换时的回弹感
-		float Kp = 0.015f * CurrentMenuPage->General_MovingSpeed;
-		float Ki = 0.0012f * CurrentMenuPage->General_MovingSpeed;
-		float Kd = 0.006f;
-		float integral_limit = 18.0f / (CurrentMenuPage->General_MovingSpeed + 0.5f);
 
-		//记录上一轮误差值
+		/* 改为更丝滑的 SmoothDamp/临界阻尼曲线：
+		 * 速度连续变化，起停更柔和，不会在中段突然蹿升。 */
+		smooth_time = 0.22f - 0.012f * CurrentMenuPage->General_MovingSpeed;
+		if(smooth_time < 0.10f){
+			smooth_time = 0.10f;
+		}
+
+		delta_time = 0.016f;
+		omega = 2.0f / smooth_time;
+		x = omega * delta_time;
+		exp_factor = 1.0f / (1.0f + x + 0.48f * x * x + 0.235f * x * x * x);
+
+		change = *CurrentNum - *TargetNum;
+		target = *TargetNum;
+		max_speed = 240.0f + 28.0f * CurrentMenuPage->General_MovingSpeed;
+		max_change = max_speed * smooth_time;
+
+		if(change > max_change){
+			change = max_change;
+		}
+		if(change < -max_change){
+			change = -max_change;
+		}
+
+		original_to = target;
+		target = *CurrentNum - change;
+		velocity = *DerivativeNum;
+		temp = (velocity + omega * change) * delta_time;
+		velocity = (velocity - omega * temp) * exp_factor;
+		output = target + (change + temp) * exp_factor;
+
+		if(((original_to - *CurrentNum) > 0.0f) == (output > original_to)){
+			output = original_to;
+			velocity = 0.0f;
+		}
+
+		*DerivativeNum = velocity;
+		*ErrorNum = original_to - output;
 		*LastErrorNum = *ErrorNum;
-		//计算本轮误差值
-		*ErrorNum = *TargetNum - *CurrentNum; 
-		//计算积分值
-		*IntegralNum += *ErrorNum;
-		if(*IntegralNum > integral_limit){
-			*IntegralNum = integral_limit;
-		}
-		if(*IntegralNum < -integral_limit){
-			*IntegralNum = -integral_limit;
-		}
-		//计算微分值，并假设时间间隔为0.1s
-		*DerivativeNum = (*ErrorNum - *LastErrorNum) / 0.1f;
-		//计算当前值
-		*CurrentNum += Kp * (*ErrorNum) + Ki *  (*IntegralNum) + Kd *(*DerivativeNum);
-		//当目标值与当前值差距小于0.5时，将目标值强制等于当前值，除了积分项不置零，其他所有中间值置零
-		if(fabs(*TargetNum - *CurrentNum) < 0.5f){
+		*IntegralNum = 0.0f;
+		*CurrentNum = output;
 
+		if(fabs(*TargetNum - *CurrentNum) < 0.12f && fabs(*DerivativeNum) < 0.08f){
 			*ErrorNum = 0;
 			*LastErrorNum = 0;
 			*DerivativeNum = 0;
-			*IntegralNum = 0;
-		    *CurrentNum = *TargetNum;
-			return;
-		}	
+			*CurrentNum = *TargetNum;
+		}
 	}
 	
 }

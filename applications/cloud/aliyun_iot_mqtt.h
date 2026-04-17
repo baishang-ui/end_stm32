@@ -3,6 +3,7 @@
 
 #include <rtthread.h>
 #include "data/todo_snapshot.h"
+#include "sensor/dht11.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,8 +26,17 @@ typedef struct
     char client_id[128];
 } aliyun_iot_status_t;
 
+typedef struct
+{
+    rt_bool_t has_sample;
+    rt_err_t last_read_error;
+    rt_tick_t sample_tick;
+    dht11_sample_t sample;
+} aliyun_iot_sensor_status_t;
+
 int aliyun_iot_start(void);
 void aliyun_iot_get_status(aliyun_iot_status_t *status);
+void aliyun_iot_get_sensor_status(aliyun_iot_sensor_status_t *status);
 rt_err_t aliyun_iot_queue_todo_report(const todo_snapshot_change_t *change);
 
 #ifdef __cplusplus
