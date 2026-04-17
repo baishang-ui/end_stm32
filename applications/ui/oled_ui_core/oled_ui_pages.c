@@ -13,6 +13,13 @@
 #define UI_AP_LINE_LEN      48
 #define UI_WIFI_SSID_LEN    32
 #define UI_STATUS_LINE_LEN  32
+#define UI_PC_STATUS_LEN    24
+#define UI_PC_STEP          2
+#define UI_PC_MAX_LEVEL     100
+#define HID_USAGE_BRIGHTNESS_INC   0x006FU
+#define HID_USAGE_BRIGHTNESS_DEC   0x0070U
+#define HID_USAGE_VOLUME_INC       0x00E9U
+#define HID_USAGE_VOLUME_DEC       0x00EAU
 
 typedef enum
 {
@@ -33,21 +40,38 @@ extern MenuPage *CurrentMenuPage;
 extern int16_t OLED_UI_Brightness;
 extern bool OLED_UI_ShowFps;
 extern bool ColorMode;
+extern rt_bool_t usb_hid_is_ready(void);
+extern rt_bool_t usb_hid_can_send(void);
+extern rt_err_t usb_hid_send_consumer_usage(rt_uint16_t usage);
+extern rt_uint32_t usb_hid_get_polling_interval_ms(void);
 
 static char s_todo_lines[TODO_SNAPSHOT_MAX_ITEMS][UI_TODO_LINE_LEN];
 static char s_ap_lines[UI_SCAN_MAX_APS][UI_AP_LINE_LEN];
 static char s_status_lines[4][UI_STATUS_LINE_LEN];
+static char s_pc_status_line[UI_PC_STATUS_LEN];
 static rt_uint32_t s_todo_display_count = 0;
 static rt_size_t s_scan_display_count = 0;
 static volatile rt_uint8_t s_wifi_job_busy = 0;
 static char s_saved_join_ssid[33] = "Bai";
 static rt_uint8_t s_saved_join_ecn = 0;
 static MenuPage *s_last_page = RT_NULL;
+static int16_t s_pc_volume = 50;
+static int16_t s_pc_brightness = 50;
+static int16_t s_pc_volume_shadow = 50;
+static int16_t s_pc_brightness_shadow = 50;
+static rt_int16_t s_pc_volume_pending = 0;
+static rt_int16_t s_pc_brightness_pending = 0;
+static rt_uint8_t s_pc_release_pending = 0U;
+static rt_tick_t s_pc_last_report_tick = 0U;
 
 static void ui_handle_wifi_scan_selection(void);
 static void ui_toggle_todo_completion(void);
 static void ui_clamp_page_cursor(MenuPage *page, rt_uint32_t count);
 static void ui_sync_status_items(void);
+static void ui_open_pc_volume_window(void);
+static void ui_open_pc_brightness_window(void);
+static void ui_sync_pc_items(void);
+static void ui_update_pc_control(void);
 
 static void ui_copy_visible_text(char *dst, rt_size_t len, const char *src)
 {
@@ -117,12 +141,6 @@ static void ui_copy_visible_text(char *dst, rt_size_t len, const char *src)
     dst[used] = '\0';
 }
 
-static void ui_set_header(const char *left, const char *right)
-{
-    OLED_PrintfArea(0, 0, 84, 8, 0, 0, OLED_6X8_HALF, "%s", (left != RT_NULL) ? left : "");
-    OLED_PrintfArea(86, 0, 42, 8, 86, 0, OLED_6X8_HALF, "%s", (right != RT_NULL) ? right : "");
-    OLED_DrawLine(0, 9, 127, 9);
-}
 
 static void ui_sync_todo_items(void)
 {
@@ -358,6 +376,52 @@ static void ui_open_brightness_window(void)
     oled_ui_create_window(&window);
 }
 
+static void ui_open_pc_volume_window(void)
+{
+    static MenuWindow window = {
+        .General_Width = 96,
+        .General_Height = 28,
+        .General_ContinueTime = 2.0f,
+        .General_WindowType = WINDOW_ROUNDRECTANGLE,
+        .Text_String = "PC VOLUME",
+        .Text_FontSize = OLED_UI_FONT_12,
+        .Text_FontSideDistance = 4,
+        .Text_FontTopDistance = 3,
+        .Prob_Data_Int = &s_pc_volume,
+        .Prob_DataStep = UI_PC_STEP,
+        .Prob_MinData = 0,
+        .Prob_MaxData = UI_PC_MAX_LEVEL,
+        .Prob_BottomDistance = 3,
+        .Prob_SideDistance = 4,
+        .Prob_LineHeight = 8,
+    };
+
+    oled_ui_create_window(&window);
+}
+
+static void ui_open_pc_brightness_window(void)
+{
+    static MenuWindow window = {
+        .General_Width = 96,
+        .General_Height = 28,
+        .General_ContinueTime = 2.0f,
+        .General_WindowType = WINDOW_ROUNDRECTANGLE,
+        .Text_String = "PC BRIGHT",
+        .Text_FontSize = OLED_UI_FONT_12,
+        .Text_FontSideDistance = 4,
+        .Text_FontTopDistance = 3,
+        .Prob_Data_Int = &s_pc_brightness,
+        .Prob_DataStep = UI_PC_STEP,
+        .Prob_MinData = 0,
+        .Prob_MaxData = UI_PC_MAX_LEVEL,
+        .Prob_BottomDistance = 3,
+        .Prob_SideDistance = 4,
+        .Prob_LineHeight = 8,
+    };
+
+    oled_ui_create_window(&window);
+}
+
 static void ui_request_wifi_scan(void)
 {
     ui_start_wifi_job(WIFI_JOB_SCAN, RT_NULL, 0U);
@@ -389,10 +453,6 @@ static void ui_handle_wifi_scan_selection(void)
     }
 }
 
-static void ui_draw_main_aux(void)
-{
-    ui_set_header("OLED UI", "EC11");
-}
 
 static void ui_sync_status_items(void)
 {
@@ -461,9 +521,179 @@ static void ui_sync_status_items(void)
     StatusMenuItems[4].General_item_text = RT_NULL;
 }
 
+static void ui_pc_queue_steps(rt_int16_t *pending, rt_int32_t delta)
+{
+    rt_int32_t steps;
+    rt_int32_t total;
+
+    if ((pending == RT_NULL) || (delta == 0))
+    {
+        return;
+    }
+
+    steps = delta / UI_PC_STEP;
+    if (steps == 0)
+    {
+        steps = (delta > 0) ? 1 : -1;
+    }
+
+    total = (rt_int32_t)(*pending) + steps;
+    if (total > 120)
+    {
+        total = 120;
+    }
+    else if (total < -120)
+    {
+        total = -120;
+    }
+
+    *pending = (rt_int16_t)total;
+}
+
+static void ui_pc_service_hid(rt_bool_t usb_ready)
+{
+    rt_tick_t now;
+    rt_tick_t min_gap;
+    rt_uint16_t usage = 0U;
+
+    if (usb_ready == RT_FALSE)
+    {
+        s_pc_volume_pending = 0;
+        s_pc_brightness_pending = 0;
+        s_pc_release_pending = 0U;
+        return;
+    }
+
+    min_gap = 0;
+    if (min_gap == 0U)
+    {
+        min_gap = 1U;
+    }
+
+    now = rt_tick_get();
+    if ((s_pc_last_report_tick != 0U) && ((now - s_pc_last_report_tick) < min_gap))
+    {
+        return;
+    }
+
+    if (1 == RT_FALSE)
+    {
+        return;
+    }
+
+    if (s_pc_release_pending != 0U)
+    {
+        if (1 == RT_EOK)
+        {
+            s_pc_release_pending = 0U;
+            s_pc_last_report_tick = now;
+        }
+        return;
+    }
+
+    if (s_pc_volume_pending > 0)
+    {
+        usage = HID_USAGE_VOLUME_INC;
+        s_pc_volume_pending--;
+    }
+    else if (s_pc_volume_pending < 0)
+    {
+        usage = HID_USAGE_VOLUME_DEC;
+        s_pc_volume_pending++;
+    }
+    else if (s_pc_brightness_pending > 0)
+    {
+        usage = HID_USAGE_BRIGHTNESS_INC;
+        s_pc_brightness_pending--;
+    }
+    else if (s_pc_brightness_pending < 0)
+    {
+        usage = HID_USAGE_BRIGHTNESS_DEC;
+        s_pc_brightness_pending++;
+    }
+
+    if ((usage != 0U) && (1 == RT_EOK))
+    {
+        s_pc_release_pending = 1U;
+        s_pc_last_report_tick = now;
+    }
+}
+
+static void ui_update_pc_control(void)
+{
+    rt_bool_t usb_ready = RT_FALSE;
+
+    if (usb_ready != RT_FALSE)
+    {
+        if (s_pc_volume != s_pc_volume_shadow)
+        {
+            ui_pc_queue_steps(&s_pc_volume_pending, (rt_int32_t)s_pc_volume - (rt_int32_t)s_pc_volume_shadow);
+            s_pc_volume_shadow = s_pc_volume;
+        }
+
+        if (s_pc_brightness != s_pc_brightness_shadow)
+        {
+            ui_pc_queue_steps(&s_pc_brightness_pending, (rt_int32_t)s_pc_brightness - (rt_int32_t)s_pc_brightness_shadow);
+            s_pc_brightness_shadow = s_pc_brightness;
+        }
+    }
+    else
+    {
+        s_pc_volume_shadow = s_pc_volume;
+        s_pc_brightness_shadow = s_pc_brightness;
+    }
+
+    ui_pc_service_hid(usb_ready);
+}
+
+static void ui_sync_pc_items(void)
+{
+    const char *usb_state;
+
+    if (1)
+    {
+        usb_state = "USB: WAIT";
+    }
+    else if ((s_pc_release_pending != 0U) || (s_pc_volume_pending != 0) || (s_pc_brightness_pending != 0))
+    {
+        usb_state = "USB: SEND";
+    }
+    else
+    {
+        usb_state = "USB: READY";
+    }
+
+    rt_strncpy(s_pc_status_line, usb_state, sizeof(s_pc_status_line) - 1U);
+    s_pc_status_line[sizeof(s_pc_status_line) - 1U] = '\0';
+
+    PCControlMenuItems[0].General_item_text = "VOLUME";
+    PCControlMenuItems[0].General_callback = ui_open_pc_volume_window;
+    PCControlMenuItems[0].General_SubMenuPage = RT_NULL;
+    PCControlMenuItems[0].List_BoolRadioBox = RT_NULL;
+    PCControlMenuItems[0].List_IntBox = &s_pc_volume;
+    PCControlMenuItems[0].List_FloatBox = RT_NULL;
+
+    PCControlMenuItems[1].General_item_text = "BRIGHT";
+    PCControlMenuItems[1].General_callback = ui_open_pc_brightness_window;
+    PCControlMenuItems[1].General_SubMenuPage = RT_NULL;
+    PCControlMenuItems[1].List_BoolRadioBox = RT_NULL;
+    PCControlMenuItems[1].List_IntBox = &s_pc_brightness;
+    PCControlMenuItems[1].List_FloatBox = RT_NULL;
+
+    PCControlMenuItems[2].General_item_text = s_pc_status_line;
+    PCControlMenuItems[2].General_callback = RT_NULL;
+    PCControlMenuItems[2].General_SubMenuPage = RT_NULL;
+    PCControlMenuItems[2].List_BoolRadioBox = RT_NULL;
+    PCControlMenuItems[2].List_IntBox = RT_NULL;
+    PCControlMenuItems[2].List_FloatBox = RT_NULL;
+
+    PCControlMenuItems[3].General_item_text = RT_NULL;
+}
+
 MenuItem MainMenuItems[] = {
     { .General_item_text = "TODO", .General_callback = RT_NULL, .General_SubMenuPage = &TodoMenuPage, .Tiles_Icon = Image_window },
     { .General_item_text = "WIFI", .General_callback = RT_NULL, .General_SubMenuPage = &WiFiMenuPage, .Tiles_Icon = Image_wechat },
+    { .General_item_text = "PC",   .General_callback = RT_NULL, .General_SubMenuPage = &PCControlMenuPage, .Tiles_Icon = Image_setings },
     { .General_item_text = "STAT", .General_callback = RT_NULL, .General_SubMenuPage = &StatusMenuPage, .Tiles_Icon = Image_window },
     { .General_item_text = "SET",  .General_callback = RT_NULL, .General_SubMenuPage = &SettingsMenuPage, .Tiles_Icon = Image_setings },
     { .General_item_text = RT_NULL },
@@ -484,6 +714,13 @@ MenuItem WiFiMenuItems[] = {
 MenuItem WiFiScanMenuItems[UI_SCAN_MAX_APS + 2] = {
     { .General_item_text = "RESCAN", .General_callback = ui_handle_wifi_scan_selection, .General_SubMenuPage = RT_NULL },
     { .General_item_text = "NO AP FOUND" },
+    { .General_item_text = RT_NULL },
+};
+
+MenuItem PCControlMenuItems[4] = {
+    { .General_item_text = "VOLUME", .General_callback = ui_open_pc_volume_window, .General_SubMenuPage = RT_NULL, .List_IntBox = &s_pc_volume },
+    { .General_item_text = "BRIGHT", .General_callback = ui_open_pc_brightness_window, .General_SubMenuPage = RT_NULL, .List_IntBox = &s_pc_brightness },
+    { .General_item_text = "USB: WAIT" },
     { .General_item_text = RT_NULL },
 };
 
@@ -509,7 +746,6 @@ MenuPage MainMenuPage = {
     .General_ParentMenuPage = RT_NULL,
     .General_MenuItems = MainMenuItems,
     .General_LineSpace = 14,
-    .General_ShowAuxiliaryFunction = ui_draw_main_aux,
     .Tiles_ScreenWidth = OLED_WIDTH,
     .Tiles_ScreenHeight = OLED_HEIGHT,
     .Tiles_TileWidth = 32,
@@ -537,7 +773,7 @@ MenuPage WiFiMenuPage = {
     .General_MenuType = MENU_TYPE_LIST,
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
-    .General_MoveStyle = PID_CURVE,
+    .General_MoveStyle = UNLINEAR,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &MainMenuPage,
     .General_MenuItems = WiFiMenuItems,
@@ -558,6 +794,23 @@ MenuPage WiFiScanMenuPage = {
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &WiFiMenuPage,
     .General_MenuItems = WiFiScanMenuItems,
+    .General_LineSpace = 4,
+    .General_ShowAuxiliaryFunction = RT_NULL,
+    .List_MenuArea = {0, 0, 128, 64},
+    .List_IfDrawFrame = false,
+    .List_IfDrawLinePerfix = true,
+    .List_StartPointX = 2,
+    .List_StartPointY = 2,
+};
+
+MenuPage PCControlMenuPage = {
+    .General_MenuType = MENU_TYPE_LIST,
+    .General_MovingSpeed = 7.0f,
+    .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
+    .General_MoveStyle = PID_CURVE,
+    .General_FontSize = OLED_UI_FONT_12,
+    .General_ParentMenuPage = &MainMenuPage,
+    .General_MenuItems = PCControlMenuItems,
     .General_LineSpace = 4,
     .General_ShowAuxiliaryFunction = RT_NULL,
     .List_MenuArea = {0, 0, 128, 64},
@@ -606,10 +859,16 @@ void oled_ui_prepare_pages(void)
     ui_sync_todo_items();
     ui_sync_scan_items();
     ui_sync_status_items();
+    ui_update_pc_control();
+    ui_sync_pc_items();
 
     if (CurrentMenuPage == &TodoMenuPage)
     {
         ui_clamp_page_cursor(&TodoMenuPage, s_todo_display_count);
+    }
+    else if (CurrentMenuPage == &PCControlMenuPage)
+    {
+        ui_clamp_page_cursor(&PCControlMenuPage, 3U);
     }
     else if (CurrentMenuPage == &WiFiScanMenuPage)
     {

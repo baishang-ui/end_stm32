@@ -36,7 +36,7 @@ extern uint8_t OLED_DisplayBuf[OLED_HEIGHT/8][OLED_WIDTH];
 
 /************关于菜单项横向滚动速度的宏**********************/
 //当菜单项长度超过菜单区域宽度时，本ui框架会自动实现菜单项的横向滚动显示，这是菜单项横向滚动步长（每一帧滚动的像素距离）
-#define LINE_SLIP_SPEED			(0.12f)			//菜单项横向滚动速度【可以是小数，但是最好是1的整数倍或者1的偶数分之一倍】
+#define LINE_SLIP_SPEED			(0.2f)			//菜单项横向滚动速度【可以是小数，但是最好是1的整数倍或者1的偶数分之一倍】
 #define GIFICON_SLIP_SPEED			(100)			//Gif的播放速度【每 XX FPS播放一帧Gif】
 
 

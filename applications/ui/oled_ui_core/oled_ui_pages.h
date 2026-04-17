@@ -11,6 +11,7 @@ extern MenuItem MainMenuItems[];
 extern MenuItem TodoMenuItems[];
 extern MenuItem WiFiMenuItems[];
 extern MenuItem WiFiScanMenuItems[];
+extern MenuItem PCControlMenuItems[];
 extern MenuItem StatusMenuItems[];
 extern MenuItem SettingsMenuItems[];
 
@@ -18,6 +19,7 @@ extern MenuPage MainMenuPage;
 extern MenuPage TodoMenuPage;
 extern MenuPage WiFiMenuPage;
 extern MenuPage WiFiScanMenuPage;
+extern MenuPage PCControlMenuPage;
 extern MenuPage StatusMenuPage;
 extern MenuPage SettingsMenuPage;
 
