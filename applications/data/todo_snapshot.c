@@ -1,4 +1,4 @@
-#include "todo_snapshot.h"
+﻿#include "todo_snapshot.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -596,3 +596,62 @@ void todo_snapshot_get(todo_snapshot_t *snapshot)
     *snapshot = g_snapshot;
     rt_mutex_release(&g_snapshot_lock);
 }
+
+rt_err_t todo_snapshot_toggle_completed(rt_uint32_t index, todo_snapshot_change_t *change)
+{
+    todo_item_t *item;
+    rt_tick_t now_tick;
+
+    if (!g_snapshot_ready)
+    {
+        todo_snapshot_init();
+    }
+
+    rt_mutex_take(&g_snapshot_lock, RT_WAITING_FOREVER);
+
+    if (index >= g_snapshot.count)
+    {
+        rt_mutex_release(&g_snapshot_lock);
+        return -RT_EINVAL;
+    }
+
+    item = &g_snapshot.items[index];
+    item->completed = (item->completed == RT_TRUE) ? RT_FALSE : RT_TRUE;
+
+    if (item->completed == RT_TRUE)
+    {
+        g_snapshot.completed_count++;
+    }
+    else if (g_snapshot.completed_count > 0U)
+    {
+        g_snapshot.completed_count--;
+    }
+
+    now_tick = rt_tick_get();
+    if (item->updated_at == 0U)
+    {
+        item->updated_at = (rt_uint64_t)now_tick;
+    }
+    else
+    {
+        item->updated_at += 1U;
+    }
+
+    g_snapshot.version += 1U;
+    g_snapshot.timestamp = item->updated_at;
+    g_snapshot.last_update_tick = now_tick;
+
+    if (change != RT_NULL)
+    {
+        memset(change, 0, sizeof(*change));
+        change->item = *item;
+        change->timestamp = g_snapshot.timestamp;
+        change->version = g_snapshot.version;
+        change->count = g_snapshot.count;
+        change->completed_count = g_snapshot.completed_count;
+    }
+
+    rt_mutex_release(&g_snapshot_lock);
+    return RT_EOK;
+}
+

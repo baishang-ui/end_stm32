@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Alibaba Cloud IoT MQTT demo over ESP-01S AT firmware.
  *
  * The connection flow follows the LCKFB wiki reference:
@@ -16,9 +16,9 @@
 #include <stdio.h>
 #include <stdint.h>
 
-#include "esp01s_at.h"
+#include "network/esp01s_at.h"
 #include "aliyun_iot_mqtt.h"
-#include "todo_snapshot.h"
+#include "data/todo_snapshot.h"
 
 #define DBG_TAG    "ali.iot"
 #define DBG_LVL    DBG_INFO
@@ -34,9 +34,12 @@
 #define ALIYUN_IOT_RETRY_MS        3000
 #define ALIYUN_IOT_RECV_POLL_MS    200
 #define ALIYUN_IOT_SUB_TOPIC       "/k1e98mYkQSF/device/user/recv_data"
+#define ALIYUN_IOT_REPORT_TOPIC    "/k1e98mYkQSF/device/user/report_data"
 #define ALIYUN_IOT_RECV_TOPIC_MAX  160
 #define ALIYUN_IOT_RECV_BUF_MAX    2048
 #define ALIYUN_IOT_TODO_JSON_MAX   4096
+#define ALIYUN_IOT_REPORT_QUEUE_SIZE  6
+#define ALIYUN_IOT_REPORT_BUF_MAX     256
 #define ALIYUN_IOT_TOPIC_FMT       "/sys/%s/%s/thing/event/property/post"
 #define ALIYUN_IOT_PUB_REPLY_FMT   "/sys/%s/%s/thing/event/property/post_reply"
 #define ALIYUN_IOT_TEMP_KEY        "temperature"
@@ -85,6 +88,21 @@ static char g_ali_recv_buf[ALIYUN_IOT_RECV_BUF_MAX];
 static char g_ali_pub_reply_topic[ALIYUN_IOT_RECV_TOPIC_MAX];
 static char g_ali_todo_json[ALIYUN_IOT_TODO_JSON_MAX];
 static rt_size_t g_ali_todo_json_len = 0;
+static struct rt_mutex g_ali_report_lock;
+static rt_bool_t g_ali_report_lock_ready = RT_FALSE;
+static char g_ali_report_queue[ALIYUN_IOT_REPORT_QUEUE_SIZE][ALIYUN_IOT_REPORT_BUF_MAX];
+static rt_uint8_t g_ali_report_head = 0;
+static rt_uint8_t g_ali_report_tail = 0;
+static rt_uint8_t g_ali_report_count = 0;
+
+static void ali_report_queue_init(void)
+{
+    if (g_ali_report_lock_ready == RT_FALSE)
+    {
+        rt_mutex_init(&g_ali_report_lock, "alirpt", RT_IPC_FLAG_PRIO);
+        g_ali_report_lock_ready = RT_TRUE;
+    }
+}
 
 static void ali_set_state(const char *state)
 {
@@ -553,6 +571,211 @@ static rt_err_t ali_handle_todo_payload(const char *payload)
     return parse_ret;
 }
 
+static rt_size_t ali_json_escape_copy(char *dst, rt_size_t dst_len, const char *src)
+{
+    rt_size_t used = 0;
+
+    if ((dst == RT_NULL) || (dst_len == 0U))
+    {
+        return 0U;
+    }
+
+    if (src == RT_NULL)
+    {
+        dst[0] = '\0';
+        return 0U;
+    }
+
+    while ((*src != '\0') && (used + 1U < dst_len))
+    {
+        char ch = *src++;
+
+        if ((ch == '\"') || (ch == '\\'))
+        {
+            if ((used + 2U) >= dst_len)
+            {
+                break;
+            }
+            dst[used++] = '\\';
+            dst[used++] = ch;
+        }
+        else if ((ch == '\r') || (ch == '\n') || (ch == '\t'))
+        {
+            if ((used + 2U) >= dst_len)
+            {
+                break;
+            }
+            dst[used++] = '\\';
+            dst[used++] = (ch == '\r') ? 'r' : ((ch == '\n') ? 'n' : 't');
+        }
+        else
+        {
+            dst[used++] = ch;
+        }
+    }
+
+    dst[used] = '\0';
+    return used;
+}
+
+static rt_size_t ali_u64_to_dec(char *dst, rt_size_t dst_len, rt_uint64_t value)
+{
+    char temp[24];
+    rt_size_t digits = 0;
+    rt_size_t i;
+
+    if ((dst == RT_NULL) || (dst_len == 0U))
+    {
+        return 0U;
+    }
+
+    if (value == 0U)
+    {
+        if (dst_len < 2U)
+        {
+            dst[0] = '\0';
+            return 0U;
+        }
+        dst[0] = '0';
+        dst[1] = '\0';
+        return 1U;
+    }
+
+    while ((value != 0U) && (digits < sizeof(temp)))
+    {
+        temp[digits++] = (char)('0' + (value % 10U));
+        value /= 10U;
+    }
+
+    if ((digits + 1U) > dst_len)
+    {
+        dst[0] = '\0';
+        return 0U;
+    }
+
+    for (i = 0; i < digits; i++)
+    {
+        dst[i] = temp[digits - 1U - i];
+    }
+    dst[digits] = '\0';
+    return digits;
+}
+
+static rt_err_t ali_json_append(char *dst, rt_size_t dst_len, rt_size_t *used, const char *src)
+{
+    rt_size_t src_len;
+
+    if ((dst == RT_NULL) || (used == RT_NULL) || (src == RT_NULL))
+    {
+        return -RT_EINVAL;
+    }
+
+    src_len = rt_strlen(src);
+    if ((*used + src_len + 1U) > dst_len)
+    {
+        return -RT_ENOMEM;
+    }
+
+    memcpy(dst + *used, src, src_len);
+    *used += src_len;
+    dst[*used] = '\0';
+    return RT_EOK;
+}
+
+static rt_err_t ali_build_todo_report_payload(char *payload,
+                                              rt_size_t payload_len,
+                                              const todo_snapshot_change_t *change)
+{
+    char id_escaped[TODO_ID_MAX_LEN * 2U];
+    char updated_at_str[24];
+    rt_size_t used = 0U;
+    rt_err_t ret;
+
+    if ((payload == RT_NULL) || (change == RT_NULL) || (payload_len == 0U))
+    {
+        return -RT_EINVAL;
+    }
+
+    payload[0] = '\0';
+    ali_json_escape_copy(id_escaped, sizeof(id_escaped), change->item.id);
+    if (ali_u64_to_dec(updated_at_str, sizeof(updated_at_str), change->item.updated_at) == 0U)
+    {
+        return -RT_ENOMEM;
+    }
+
+    ret = ali_json_append(payload, payload_len, &used, "{\"id\":\"");
+    if (ret != RT_EOK)
+    {
+        return ret;
+    }
+    ret = ali_json_append(payload, payload_len, &used, id_escaped);
+    if (ret != RT_EOK)
+    {
+        return ret;
+    }
+    ret = ali_json_append(payload, payload_len, &used, "\",\"updatedAt\":");
+    if (ret != RT_EOK)
+    {
+        return ret;
+    }
+    ret = ali_json_append(payload, payload_len, &used, updated_at_str);
+    if (ret != RT_EOK)
+    {
+        return ret;
+    }
+    ret = ali_json_append(payload, payload_len, &used, ",\"completed\":");
+    if (ret != RT_EOK)
+    {
+        return ret;
+    }
+    ret = ali_json_append(payload, payload_len, &used, change->item.completed ? "true" : "false");
+    if (ret != RT_EOK)
+    {
+        return ret;
+    }
+    ret = ali_json_append(payload, payload_len, &used, "}");
+    if (ret != RT_EOK)
+    {
+        return ret;
+    }
+
+    return RT_EOK;
+}
+
+static rt_err_t ali_publish_next_todo_report(void)
+{
+    char payload[ALIYUN_IOT_REPORT_BUF_MAX];
+    rt_err_t ret = -RT_EEMPTY;
+
+    if (g_ali_report_lock_ready == RT_FALSE)
+    {
+        return -RT_EEMPTY;
+    }
+
+    rt_mutex_take(&g_ali_report_lock, RT_WAITING_FOREVER);
+    if (g_ali_report_count > 0U)
+    {
+        rt_strncpy(payload, g_ali_report_queue[g_ali_report_head], sizeof(payload) - 1U);
+        payload[sizeof(payload) - 1U] = '\0';
+        g_ali_report_head = (rt_uint8_t)((g_ali_report_head + 1U) % ALIYUN_IOT_REPORT_QUEUE_SIZE);
+        g_ali_report_count--;
+        ret = RT_EOK;
+    }
+    rt_mutex_release(&g_ali_report_lock);
+
+    if (ret != RT_EOK)
+    {
+        return ret;
+    }
+
+    ret = esp01s_mqtt_pubraw(ALIYUN_IOT_REPORT_TOPIC, payload, rt_strlen(payload), 0, RT_FALSE);
+    if (ret == RT_EOK)
+    {
+        ali_set_state("RPT");
+    }
+    return ret;
+}
+
 static rt_err_t ali_build_payload(char *payload,
                                   rt_size_t payload_len,
                                   rt_uint32_t seq,
@@ -625,6 +848,35 @@ static void ali_disconnect_mqtt(void)
     g_ali_todo_json[0] = '\0';
 }
 
+rt_err_t aliyun_iot_queue_todo_report(const todo_snapshot_change_t *change)
+{
+    char payload[ALIYUN_IOT_REPORT_BUF_MAX];
+    rt_err_t ret;
+
+    ali_report_queue_init();
+
+    ret = ali_build_todo_report_payload(payload, sizeof(payload), change);
+    if (ret != RT_EOK)
+    {
+        return ret;
+    }
+
+    rt_mutex_take(&g_ali_report_lock, RT_WAITING_FOREVER);
+    if (g_ali_report_count >= ALIYUN_IOT_REPORT_QUEUE_SIZE)
+    {
+        g_ali_report_head = (rt_uint8_t)((g_ali_report_head + 1U) % ALIYUN_IOT_REPORT_QUEUE_SIZE);
+        g_ali_report_count--;
+    }
+
+    rt_strncpy(g_ali_report_queue[g_ali_report_tail], payload, ALIYUN_IOT_REPORT_BUF_MAX - 1U);
+    g_ali_report_queue[g_ali_report_tail][ALIYUN_IOT_REPORT_BUF_MAX - 1U] = '\0';
+    g_ali_report_tail = (rt_uint8_t)((g_ali_report_tail + 1U) % ALIYUN_IOT_REPORT_QUEUE_SIZE);
+    g_ali_report_count++;
+    rt_mutex_release(&g_ali_report_lock);
+
+    return RT_EOK;
+}
+
 static void ali_iot_thread(void *parameter)
 {
     esp01s_status_t wifi;
@@ -635,6 +887,7 @@ static void ali_iot_thread(void *parameter)
     RT_UNUSED(parameter);
 
     todo_snapshot_init();
+    ali_report_queue_init();
     ali_build_auth(&g_ali.auth);
     rt_kprintf("[ALI] host=%s\r\n", g_ali.auth.host);
     rt_kprintf("[ALI] pub=%s\r\n", g_ali.auth.topic);
@@ -741,6 +994,29 @@ static void ali_iot_thread(void *parameter)
             continue;
         }
 
+        ret = ali_publish_next_todo_report();
+        if (ret == RT_EOK)
+        {
+            g_ali.last_error = RT_EOK;
+            rt_kprintf("[ALI] todo report sent\r\n");
+            continue;
+        }
+        if ((ret != -RT_EEMPTY) && (ret != -RT_ETIMEOUT))
+        {
+            g_ali.reconnect_count++;
+            g_ali.mqtt_connected = RT_FALSE;
+            g_ali.last_error = ret;
+            ali_set_state("RTRY");
+            rt_kprintf("[ALI] todo report failed: %d\r\n", ret);
+            if (esp01s_last_response()[0] != '\0')
+            {
+                rt_kprintf("[ALI] todo report rsp: %s\r\n", esp01s_last_response());
+            }
+            ali_disconnect_mqtt();
+            rt_thread_mdelay(ALIYUN_IOT_RETRY_MS);
+            continue;
+        }
+
         if ((rt_tick_get() - last_pub_tick) >= rt_tick_from_millisecond(ALIYUN_IOT_PUB_PERIOD_MS))
         {
             ret = ali_publish_sample(&g_ali.auth, g_ali.publish_count + 1U);
@@ -778,6 +1054,7 @@ int aliyun_iot_start(void)
         return RT_EOK;
     }
 
+    ali_report_queue_init();
     thread = rt_thread_create("ali_iot", ali_iot_thread, RT_NULL, 4096, 22, 10);
     if (thread == RT_NULL)
     {
@@ -815,3 +1092,4 @@ void aliyun_iot_get_status(aliyun_iot_status_t *status)
     rt_strncpy(status->sub_topic, ALIYUN_IOT_SUB_TOPIC, sizeof(status->sub_topic) - 1);
     rt_strncpy(status->client_id, g_ali.auth.client_id, sizeof(status->client_id) - 1);
 }
+

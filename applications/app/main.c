@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2023, RT-Thread Development Team
  *
  * SPDX-License-Identifier: Apache-2.0
@@ -16,8 +16,8 @@
 #ifndef RT_USING_NANO
 #include <rtdevice.h>
 #endif /* RT_USING_NANO */
-#include "esp01s_at.h"
-#include "aliyun_iot_mqtt.h"
+#include "network/esp01s_at.h"
+#include "cloud/aliyun_iot_mqtt.h"
 
 #define GPIO_LED    GET_PIN(B, 2)
 
@@ -35,3 +35,4 @@ int main(void)
         rt_thread_mdelay(500);
     }
 }
+

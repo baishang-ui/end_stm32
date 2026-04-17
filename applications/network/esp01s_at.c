@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Minimal ESP-01S AT driver for RT-Thread.
  *
  * Recommended wiring:
@@ -1650,3 +1650,4 @@ static int esp_cmd_cmd(int argc, char **argv)
     return ret;
 }
 MSH_CMD_EXPORT_ALIAS(esp_cmd_cmd, esp_cmd, esp_cmd <AT+...>);
+

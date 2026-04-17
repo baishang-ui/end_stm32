@@ -1,4 +1,4 @@
-#ifndef __TODO_SNAPSHOT_H__
+﻿#ifndef __TODO_SNAPSHOT_H__
 #define __TODO_SNAPSHOT_H__
 
 #include <rtthread.h>
@@ -35,12 +35,23 @@ typedef struct
     todo_item_t items[TODO_SNAPSHOT_MAX_ITEMS];
 } todo_snapshot_t;
 
+typedef struct
+{
+    todo_item_t item;
+    rt_uint64_t timestamp;
+    rt_uint32_t version;
+    rt_uint32_t count;
+    rt_uint32_t completed_count;
+} todo_snapshot_change_t;
+
 void todo_snapshot_init(void);
 rt_err_t todo_snapshot_update_from_json(const char *json);
 void todo_snapshot_get(todo_snapshot_t *snapshot);
+rt_err_t todo_snapshot_toggle_completed(rt_uint32_t index, todo_snapshot_change_t *change);
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif /* __TODO_SNAPSHOT_H__ */
+

@@ -1,7 +1,8 @@
-#ifndef __ALIYUN_IOT_MQTT_H__
+﻿#ifndef __ALIYUN_IOT_MQTT_H__
 #define __ALIYUN_IOT_MQTT_H__
 
 #include <rtthread.h>
+#include "data/todo_snapshot.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,9 +27,11 @@ typedef struct
 
 int aliyun_iot_start(void);
 void aliyun_iot_get_status(aliyun_iot_status_t *status);
+rt_err_t aliyun_iot_queue_todo_report(const todo_snapshot_change_t *change);
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif /* __ALIYUN_IOT_MQTT_H__ */
+
