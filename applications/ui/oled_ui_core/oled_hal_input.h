@@ -7,10 +7,11 @@
 #include <rthw.h>
 #include "stm32f4xx_hal.h"
 #include "stm32f4xx.h"
-#include "oled_ui_utils.h"
 
 int oled_ui_read_enter_key(void);
 int oled_ui_read_back_key(void);
+rt_bool_t oled_ui_consume_enter_event(void);
+rt_bool_t oled_ui_consume_back_event(void);
 
 #define oled_ui_get_enter_status()    oled_ui_read_enter_key()
 #define oled_ui_get_back_status()     oled_ui_read_back_key()

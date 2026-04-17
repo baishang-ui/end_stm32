@@ -104,9 +104,6 @@
 #define RT_USB_DEVICE_HID_KEYBOARD
 #define RT_USB_DEVICE_HID_KEYBOARD_NUMBER 1
 #define RT_USB_DEVICE_HID_MOUSE
-#define RT_USB_DEVICE_HID_GENERAL
-#define RT_USB_DEVICE_HID_GENERAL_OUT_REPORT_LENGTH 63
-#define RT_USB_DEVICE_HID_GENERAL_IN_REPORT_LENGTH 63
 #define RT_USB_DEVICE_HID_MEDIA
 /* end of Using USB */
 /* end of Device Drivers */
@@ -235,35 +232,6 @@
 /* Micrium: Micrium software products porting for RT-Thread */
 
 /* end of Micrium: Micrium software products porting for RT-Thread */
-#define PKG_USING_TINYUSB
-#define PKG_TINYUSB_STACK_SIZE 2048
-#define PKG_TINYUSB_THREAD_PRIORITY 8
-#define PKG_TINYUSB_MEM_SECTION ".data"
-#define PKG_TINYUSB_MEM_ALIGN 4
-#define PKG_TINYUSB_RHPORT_NUM_2
-#define PKG_TINYUSB_RHPORT_NUM 1
-#define PKG_TINYUSB_FULL_SPEED
-#define PKG_TINYUSB_DEVICE_PORT_SPEED 0x0200
-#define PKG_TINYUSB_DEVICE_ENABLE
-#define PKG_TINYUSB_DEVICE_VID 0xCAFE
-#define PKG_TINYUSB_DEVICE_PID 0x4000
-#define PKG_TINYUSB_DEVICE_MANUFACTURER "TinyUSB"
-#define PKG_TINYUSB_DEVICE_PRODUCT "TinyUSB Device"
-#define PKG_TINYUSB_EDPT0_SIZE 64
-#define PKG_TINYUSB_DEVICE_CURRENT 100
-#define PKG_TINYUSB_DEVICE_HID
-#define CFG_TUD_HID 1
-#define PKG_TINYUSB_DEVICE_HID_STRING "TinyUSB HID"
-#define PKG_TINYUSB_DEVICE_HID_EPNUM 4
-#define PKG_TINYUSB_DEVICE_HID_INT 5
-#define PKG_TINYUSB_DEVICE_HID_KEYBOARD
-#define PKG_TINYUSB_DEVICE_HID_MOUSE
-#define PKG_TINYUSB_DEVICE_HID_EP_BUFSIZE 16
-#define PKG_TINYUSB_DEVICE_EXAMPLE
-#define PKG_TINYUSB_DEVICE_EXAMPLE_HID
-#define PKG_TINYUSB_DEBUG_INFO
-#define CFG_TUSB_DEBUG 3
-#define PKG_USING_TINYUSB_V01301
 /* end of system packages */
 
 /* peripheral libraries and drivers */
@@ -415,6 +383,7 @@
 #define BSP_USING_SPI1
 #define BSP_SPI1_TX_USING_DMA
 #define BSP_SPI1_RX_USING_DMA
+#define BSP_USING_USBD
 /* end of On-chip Peripheral Drivers */
 /* end of Hardware Drivers Config */
 

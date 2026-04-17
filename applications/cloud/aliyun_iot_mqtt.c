@@ -31,6 +31,9 @@
 #define ALIYUN_IOT_DEVICE_SECRET  "0f620a5ef141ff21cd9fccb0830442cd"
 
 #define ALIYUN_IOT_KEEPALIVE_SEC   300
+#define ALIYUN_IOT_PORT            1883
+#define ALIYUN_IOT_SECUREMODE      2
+#define ALIYUN_IOT_SIGN_METHOD     "hmacsha1"
 #define ALIYUN_IOT_PUB_PERIOD_MS   1000
 #define ALIYUN_IOT_RETRY_MS        3000
 #define ALIYUN_IOT_RECV_POLL_MS    200
@@ -87,6 +90,7 @@ static dht11_sample_t g_dht11_last_sample = {235, 500};
 static rt_bool_t g_dht11_has_sample = RT_FALSE;
 static rt_err_t g_dht11_last_error = -RT_EEMPTY;
 static rt_tick_t g_dht11_last_tick = 0;
+static rt_tick_t g_dht11_last_attempt_tick = 0;
 static rt_bool_t g_ali_thread_started = RT_FALSE;
 static char g_ali_recv_topic[ALIYUN_IOT_RECV_TOPIC_MAX];
 static char g_ali_recv_buf[ALIYUN_IOT_RECV_BUF_MAX];
@@ -99,6 +103,27 @@ static char g_ali_report_queue[ALIYUN_IOT_REPORT_QUEUE_SIZE][ALIYUN_IOT_REPORT_B
 static rt_uint8_t g_ali_report_head = 0;
 static rt_uint8_t g_ali_report_tail = 0;
 static rt_uint8_t g_ali_report_count = 0;
+
+static rt_err_t ali_refresh_sensor_cache(void)
+{
+    dht11_sample_t sample;
+    rt_err_t ret;
+
+    ret = dht11_read(&sample);
+    g_dht11_last_attempt_tick = rt_tick_get();
+
+    if (ret == RT_EOK)
+    {
+        g_dht11_last_sample = sample;
+        g_dht11_has_sample = RT_TRUE;
+        g_dht11_last_error = RT_EOK;
+        g_dht11_last_tick = g_dht11_last_attempt_tick;
+        return RT_EOK;
+    }
+
+    g_dht11_last_error = ret;
+    return ret;
+}
 
 static void ali_report_queue_init(void)
 {
@@ -362,8 +387,12 @@ static void ali_build_auth(aliyun_iot_auth_t *auth)
 
     rt_snprintf(auth->base_client_id, sizeof(auth->base_client_id), "%s.%s",
                 auth->product_key, auth->device_name);
-    rt_snprintf(auth->client_id, sizeof(auth->client_id), "%s|securemode=3,signmethod=hmacsha1|",
-                auth->base_client_id);
+    rt_snprintf(auth->client_id,
+                sizeof(auth->client_id),
+                "%s|securemode=%d,signmethod=%s|",
+                auth->base_client_id,
+                ALIYUN_IOT_SECUREMODE,
+                ALIYUN_IOT_SIGN_METHOD);
     rt_snprintf(auth->username, sizeof(auth->username), "%s&%s",
                 auth->device_name, auth->product_key);
     rt_snprintf(auth->host, sizeof(auth->host), "%s.iot-as-mqtt.%s.aliyuncs.com",
@@ -416,8 +445,10 @@ static rt_err_t ali_mqtt_prepare(const aliyun_iot_auth_t *auth)
     }
 
     rt_snprintf(cmd, sizeof(cmd),
-                "AT+MQTTCLIENTID=0,\"%s|securemode=3\\,signmethod=hmacsha1|\"",
-                auth->base_client_id);
+                "AT+MQTTCLIENTID=0,\"%s|securemode=%d\\,signmethod=%s|\"",
+                auth->base_client_id,
+                ALIYUN_IOT_SECUREMODE,
+                ALIYUN_IOT_SIGN_METHOD);
     ret = esp01s_at_command(cmd, "OK", "ERROR", 3000);
     if (ret != RT_EOK)
     {
@@ -431,8 +462,9 @@ static rt_err_t ali_mqtt_prepare(const aliyun_iot_auth_t *auth)
     ali_send_best_effort(cmd);
 
     rt_snprintf(cmd, sizeof(cmd),
-                "AT+MQTTCONN=0,\"%s\",1883,1",
-                auth->host);
+                "AT+MQTTCONN=0,\"%s\",%d,1",
+                auth->host,
+                ALIYUN_IOT_PORT);
     ret = esp01s_at_command(cmd, "OK", "ERROR", 30000);
     if (ret != RT_EOK)
     {
@@ -830,22 +862,14 @@ static rt_err_t ali_publish_sample(const aliyun_iot_auth_t *auth, rt_uint32_t se
     rt_int32_t humi_x10;
     rt_err_t ret;
 
-    ret = dht11_read(&g_dht11_last_sample);
-    if (ret == RT_EOK)
+    ret = ali_refresh_sensor_cache();
+    if ((ret != RT_EOK) && !g_dht11_has_sample)
     {
-        g_dht11_has_sample = RT_TRUE;
-        g_dht11_last_error = RT_EOK;
-        g_dht11_last_tick = rt_tick_get();
-    }
-    else if (!g_dht11_has_sample)
-    {
-        g_dht11_last_error = ret;
         rt_kprintf("[DHT11] read failed before first valid sample: %d\r\n", ret);
-        return ret;
+        return -RT_EEMPTY;
     }
-    else
+    if (ret != RT_EOK)
     {
-        g_dht11_last_error = ret;
         rt_kprintf("[DHT11] read failed, keep last sample: %d\r\n", ret);
     }
 
@@ -923,6 +947,12 @@ static void ali_iot_thread(void *parameter)
 
     while (1)
     {
+        if ((!g_dht11_has_sample) ||
+            ((rt_tick_get() - g_dht11_last_attempt_tick) >= rt_tick_from_millisecond(ALIYUN_IOT_PUB_PERIOD_MS)))
+        {
+            (void)ali_refresh_sensor_cache();
+        }
+
         if (!ali_wifi_ready(&wifi))
         {
             if (g_ali.mqtt_connected)

@@ -6,7 +6,6 @@
 #include "main.h"
 #include "oled_ui_core.h"
 #include "oled_ui_pages.h"
-#include "oled_ui_utils.h"
 #include "oled_graphics.h"
 
 void oled_ui_launcher_init(void);

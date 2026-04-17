@@ -1768,8 +1768,8 @@ void oled_ui_interrupt_handler(void){
 		
 	
     	
-		//如果检测到【返回】按键的上一状态与这次的状态不同，且这一状态是抬起状态，说明用户按下了【返回】按键，并且刚刚才抬起
-		if(OLED_UI_Key.Back != OLED_UI_LastKey.Back && OLED_UI_Key.Back == 1){
+		//编码器长按触发返回事件
+		if(oled_ui_consume_back_event()){
 			//如果当前没有运行窗口
 			if(OLED_SustainCounter.SustainFlag == false){
 				oled_ui_back_menu_item();
@@ -1778,8 +1778,8 @@ void oled_ui_interrupt_handler(void){
 			}
 			
 		}
-		//如果检测到【确认】按键的上一状态与这次的状态不同，且这一状态是抬起状态，说明用户按下了【确认】按键，并且刚刚才抬起
-		if(OLED_UI_Key.Enter != OLED_UI_LastKey.Enter && OLED_UI_Key.Enter == 1){
+		//编码器短按触发确认事件
+		if(oled_ui_consume_enter_event()){
 			if(OLED_SustainCounter.SustainFlag == false){
 				oled_ui_enter_menu_item();
 				if (CurrentMenuPage->General_MenuItems[CurrentMenuPage->_ActiveMenuID].List_BoolRadioBox != NULL) {

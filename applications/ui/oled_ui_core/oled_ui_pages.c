@@ -554,6 +554,7 @@ static void ui_pc_service_hid(rt_bool_t usb_ready)
 {
     rt_tick_t now;
     rt_tick_t min_gap;
+    rt_uint32_t poll_ms;
     rt_uint16_t usage = 0U;
 
     if (usb_ready == RT_FALSE)
@@ -564,7 +565,8 @@ static void ui_pc_service_hid(rt_bool_t usb_ready)
         return;
     }
 
-    min_gap = 0;
+    poll_ms = usb_hid_get_polling_interval_ms();
+    min_gap = (rt_tick_t)(((rt_uint64_t)poll_ms * RT_TICK_PER_SECOND + 999U) / 1000U);
     if (min_gap == 0U)
     {
         min_gap = 1U;
@@ -576,14 +578,14 @@ static void ui_pc_service_hid(rt_bool_t usb_ready)
         return;
     }
 
-    if (1 == RT_FALSE)
+    if (usb_hid_can_send() == RT_FALSE)
     {
         return;
     }
 
     if (s_pc_release_pending != 0U)
     {
-        if (1 == RT_EOK)
+        if (usb_hid_send_consumer_usage(0U) == RT_EOK)
         {
             s_pc_release_pending = 0U;
             s_pc_last_report_tick = now;
@@ -612,7 +614,7 @@ static void ui_pc_service_hid(rt_bool_t usb_ready)
         s_pc_brightness_pending++;
     }
 
-    if ((usage != 0U) && (1 == RT_EOK))
+    if ((usage != 0U) && (usb_hid_send_consumer_usage(usage) == RT_EOK))
     {
         s_pc_release_pending = 1U;
         s_pc_last_report_tick = now;
@@ -621,7 +623,7 @@ static void ui_pc_service_hid(rt_bool_t usb_ready)
 
 static void ui_update_pc_control(void)
 {
-    rt_bool_t usb_ready = RT_FALSE;
+    rt_bool_t usb_ready = usb_hid_is_ready();
 
     if (usb_ready != RT_FALSE)
     {
@@ -650,11 +652,14 @@ static void ui_sync_pc_items(void)
 {
     const char *usb_state;
 
-    if (1)
+    if (usb_hid_is_ready() == RT_FALSE)
     {
         usb_state = "USB: WAIT";
     }
-    else if ((s_pc_release_pending != 0U) || (s_pc_volume_pending != 0) || (s_pc_brightness_pending != 0))
+    else if ((usb_hid_can_send() == RT_FALSE) ||
+             (s_pc_release_pending != 0U) ||
+             (s_pc_volume_pending != 0) ||
+             (s_pc_brightness_pending != 0))
     {
         usb_state = "USB: SEND";
     }
@@ -757,7 +762,7 @@ MenuPage TodoMenuPage = {
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
     .General_MoveStyle = PID_CURVE,
-    .General_FontSize = OLED_UI_FONT_12,
+    .General_FontSize = OLED_UI_FONT_16,
     .General_ParentMenuPage = &MainMenuPage,
     .General_MenuItems = TodoMenuItems,
     .General_LineSpace = 4,
@@ -774,7 +779,7 @@ MenuPage WiFiMenuPage = {
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
     .General_MoveStyle = UNLINEAR,
-    .General_FontSize = OLED_UI_FONT_12,
+    .General_FontSize = OLED_UI_FONT_16,
     .General_ParentMenuPage = &MainMenuPage,
     .General_MenuItems = WiFiMenuItems,
     .General_LineSpace = 4,
@@ -791,7 +796,7 @@ MenuPage WiFiScanMenuPage = {
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
     .General_MoveStyle = PID_CURVE,
-    .General_FontSize = OLED_UI_FONT_12,
+    .General_FontSize = OLED_UI_FONT_16,
     .General_ParentMenuPage = &WiFiMenuPage,
     .General_MenuItems = WiFiScanMenuItems,
     .General_LineSpace = 4,
@@ -808,7 +813,7 @@ MenuPage PCControlMenuPage = {
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
     .General_MoveStyle = PID_CURVE,
-    .General_FontSize = OLED_UI_FONT_12,
+    .General_FontSize = OLED_UI_FONT_16,
     .General_ParentMenuPage = &MainMenuPage,
     .General_MenuItems = PCControlMenuItems,
     .General_LineSpace = 4,
@@ -825,7 +830,7 @@ MenuPage StatusMenuPage = {
     .General_MovingSpeed = 6.8f,
     .General_CursorStyle = NOT_SHOW,
     .General_MoveStyle = PID_CURVE,
-    .General_FontSize = OLED_UI_FONT_12,
+    .General_FontSize = OLED_UI_FONT_16,
     .General_ParentMenuPage = &MainMenuPage,
     .General_MenuItems = StatusMenuItems,
     .General_LineSpace = 4,
@@ -842,7 +847,7 @@ MenuPage SettingsMenuPage = {
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
     .General_MoveStyle = PID_CURVE,
-    .General_FontSize = OLED_UI_FONT_12,
+    .General_FontSize = OLED_UI_FONT_16,
     .General_ParentMenuPage = &MainMenuPage,
     .General_MenuItems = SettingsMenuItems,
     .General_LineSpace = 4,

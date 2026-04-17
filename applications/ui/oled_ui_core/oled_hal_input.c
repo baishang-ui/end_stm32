@@ -3,7 +3,7 @@
 #define APP_ENC_PIN_A   GET_PIN(B, 12)
 #define APP_ENC_PIN_B   GET_PIN(B, 13)
 #define APP_KEY_ENTER   GET_PIN(B, 14)
-#define APP_KEY_BACK    GET_PIN(A, 0)
+#define APP_ENCODER_BACK_HOLD_MS  500U
 
 typedef struct
 {
@@ -34,10 +34,17 @@ typedef struct
 } app_encoder_irq_ctx_t;
 
 static app_key_t s_enter_key;
-static app_key_t s_back_key;
 static app_encoder_t s_encoder;
 static app_encoder_irq_ctx_t s_enc_irq_a;
 static app_encoder_irq_ctx_t s_enc_irq_b;
+static rt_tick_t s_enter_hold_ticks = 0;
+static rt_tick_t s_enter_press_tick = 0;
+static rt_tick_t s_enter_update_tick = (rt_tick_t)-1;
+static rt_uint8_t s_enter_level = 1U;
+static rt_uint8_t s_enter_prev_level = 1U;
+static rt_bool_t s_enter_long_press = RT_FALSE;
+static rt_bool_t s_enter_event_pending = RT_FALSE;
+static rt_bool_t s_back_event_pending = RT_FALSE;
 
 static void app_key_init(app_key_t *key, rt_base_t pin, rt_tick_t debounce_ticks)
 {
@@ -66,6 +73,45 @@ static int app_key_read(app_key_t *key)
     }
 
     return key->stable_level;
+}
+
+static void app_update_encoder_button_events(void)
+{
+    rt_tick_t now = rt_tick_get();
+
+    if (s_enter_update_tick == now)
+    {
+        return;
+    }
+    s_enter_update_tick = now;
+
+    s_enter_level = (rt_uint8_t)app_key_read(&s_enter_key);
+
+    if (s_enter_level != s_enter_prev_level)
+    {
+        if (s_enter_level == 0U)
+        {
+            s_enter_press_tick = now;
+            s_enter_long_press = RT_FALSE;
+        }
+        else
+        {
+            if (!s_enter_long_press)
+            {
+                s_enter_event_pending = RT_TRUE;
+            }
+            s_enter_long_press = RT_FALSE;
+        }
+
+        s_enter_prev_level = s_enter_level;
+    }
+    else if ((s_enter_level == 0U) &&
+             (s_enter_long_press == RT_FALSE) &&
+             ((now - s_enter_press_tick) >= s_enter_hold_ticks))
+    {
+        s_enter_long_press = RT_TRUE;
+        s_back_event_pending = RT_TRUE;
+    }
 }
 
 static void app_encoder_handle_irq(app_encoder_t *enc)
@@ -147,7 +193,14 @@ void oled_ui_timer_init(void)
 void oled_ui_key_init(void)
 {
     app_key_init(&s_enter_key, APP_KEY_ENTER, rt_tick_from_millisecond(18));
-    app_key_init(&s_back_key, APP_KEY_BACK, rt_tick_from_millisecond(18));
+    s_enter_hold_ticks = rt_tick_from_millisecond(APP_ENCODER_BACK_HOLD_MS);
+    s_enter_level = s_enter_key.stable_level;
+    s_enter_prev_level = s_enter_key.stable_level;
+    s_enter_press_tick = rt_tick_get();
+    s_enter_long_press = RT_FALSE;
+    s_enter_event_pending = RT_FALSE;
+    s_back_event_pending = RT_FALSE;
+    s_enter_update_tick = (rt_tick_t)-1;
 }
 
 void oled_ui_encoder_init(void)
@@ -211,12 +264,37 @@ int16_t oled_ui_encoder_get_delta(void)
 
 int oled_ui_read_enter_key(void)
 {
-    return app_key_read(&s_enter_key);
+    app_update_encoder_button_events();
+    return s_enter_level;
 }
 
 int oled_ui_read_back_key(void)
 {
-    return app_key_read(&s_back_key);
+    return 1;
+}
+
+rt_bool_t oled_ui_consume_enter_event(void)
+{
+    app_update_encoder_button_events();
+    if (s_enter_event_pending)
+    {
+        s_enter_event_pending = RT_FALSE;
+        return RT_TRUE;
+    }
+
+    return RT_FALSE;
+}
+
+rt_bool_t oled_ui_consume_back_event(void)
+{
+    app_update_encoder_button_events();
+    if (s_back_event_pending)
+    {
+        s_back_event_pending = RT_FALSE;
+        return RT_TRUE;
+    }
+
+    return RT_FALSE;
 }
 
 void oled_ui_delay_ms(uint32_t xms)
