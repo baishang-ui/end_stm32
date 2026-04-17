@@ -19,6 +19,7 @@
 #include "network/esp01s_at.h"
 #include "aliyun_iot_mqtt.h"
 #include "data/todo_snapshot.h"
+#include "sensor/dht11.h"
 
 #define DBG_TAG    "ali.iot"
 #define DBG_LVL    DBG_INFO
@@ -82,6 +83,8 @@ typedef struct
 } sha1_ctx_t;
 
 static aliyun_iot_ctx_t g_ali;
+static dht11_sample_t g_dht11_last_sample = {235, 500};
+static rt_bool_t g_dht11_has_sample = RT_FALSE;
 static rt_bool_t g_ali_thread_started = RT_FALSE;
 static char g_ali_recv_topic[ALIYUN_IOT_RECV_TOPIC_MAX];
 static char g_ali_recv_buf[ALIYUN_IOT_RECV_BUF_MAX];
@@ -824,11 +827,24 @@ static rt_err_t ali_publish_sample(const aliyun_iot_auth_t *auth, rt_uint32_t se
     rt_int32_t temp_x10;
     rt_int32_t humi_x10;
     rt_err_t ret;
-    rt_uint32_t tick;
 
-    tick = rt_tick_get();
-    temp_x10 = 235 + (rt_int32_t)((tick / 200U) % 50U);
-    humi_x10 = 480 + (rt_int32_t)(((tick / 150U) % 70U) * 2U);
+    ret = dht11_read(&g_dht11_last_sample);
+    if (ret == RT_EOK)
+    {
+        g_dht11_has_sample = RT_TRUE;
+    }
+    else if (!g_dht11_has_sample)
+    {
+        rt_kprintf("[DHT11] read failed before first valid sample: %d\r\n", ret);
+        return ret;
+    }
+    else
+    {
+        rt_kprintf("[DHT11] read failed, keep last sample: %d\r\n", ret);
+    }
+
+    temp_x10 = g_dht11_last_sample.temperature_x10;
+    humi_x10 = g_dht11_last_sample.humidity_x10;
 
     ret = ali_build_payload(payload, sizeof(payload), seq, temp_x10, humi_x10);
     if (ret != RT_EOK)
@@ -888,6 +904,7 @@ static void ali_iot_thread(void *parameter)
 
     todo_snapshot_init();
     ali_report_queue_init();
+    dht11_init();
     ali_build_auth(&g_ali.auth);
     rt_kprintf("[ALI] host=%s\r\n", g_ali.auth.host);
     rt_kprintf("[ALI] pub=%s\r\n", g_ali.auth.topic);

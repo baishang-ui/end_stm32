@@ -927,14 +927,26 @@ void oled_ui_draw_menu_elements(void){
 
 		//打印菜单项
 		for(MenuID i = 0; i<num;i++){
+			const char *item_text = page->General_MenuItems[i].General_item_text;
+			const char *display_text = item_text;
+			int16_t FixedPrefixWidth = 0;
+			char FixedPrefix[5] = {0};
 			
 			if(CursorPoint.Y + ChineseFont <0 || CursorPoint.Y > OLED_HEIGHT){
 				CursorPoint.Y += (page->General_FontSize + OLED_UI_LineStep.CurrentDistance);
 				continue;
 			}
 
+			if(item_text != NULL &&
+			   ((strncmp(item_text, "[ ] ", 4) == 0) || (strncmp(item_text, "[x] ", 4) == 0))){
+				memcpy(FixedPrefix, item_text, 4);
+				FixedPrefix[4] = '\0';
+				display_text = item_text + 4;
+				FixedPrefixWidth = oled_ui_calc_string_width(ChineseFont,ASCIIFont,"%s",FixedPrefix);
+			}
+
 			//记录此轮循环的字符串宽度
-			int16_t StringLength = oled_ui_calc_string_width(ChineseFont,ASCIIFont,page->General_MenuItems[i].General_item_text);
+			int16_t StringLength = oled_ui_calc_string_width(ChineseFont,ASCIIFont,"%s",display_text == NULL ? "" : display_text);
 
 			//根据情况绘制行前缀
 			oled_ui_draw_line_prefix(page,i,&CursorPoint,ChineseFont,ASCIIFont);
@@ -1010,9 +1022,25 @@ void oled_ui_draw_menu_elements(void){
 					RadioCompensationWidth = 0;
 			}
 			
+			if(FixedPrefixWidth > 0){
+				OLED_PrintfMixArea(
+							 TempTargetArea.CurrentArea.X + LinePerfixWidth + CurrentMenuPage->List_StartPointX,
+							 TempTargetArea.CurrentArea.Y,
+							 FixedPrefixWidth,
+							 TempTargetArea.CurrentArea.Height,
+							 CursorPoint.X + LinePerfixWidth,
+							 CursorPoint.Y,
+							 ChineseFont,ASCIIFont,
+							 "%s",FixedPrefix);
+			}
+
+			int16_t MaxTextWidth = TempTargetArea.CurrentArea.Width - 6 - LinePerfixWidth - CurrentMenuPage->List_StartPointX - 2 - RadioCompensationWidth - FixedPrefixWidth;
+			if(MaxTextWidth < 0){
+				MaxTextWidth = 0;
+			}
 
 			//如果字符串的宽度超过了最大限定宽度
-			if(StringLength > (TempTargetArea.TargetArea.X + TempTargetArea.TargetArea.Width - 6 - 2) - TempTargetPoint.TargetPoint.X - LinePerfixWidth - RadioCompensationWidth ){
+			if(StringLength > MaxTextWidth ){
 #if IF_WAIT_ANIMATION_FINISH
 			    if(TempTargetArea.TargetArea.Width == TempTargetArea.CurrentArea.Width &&
 					TempTargetArea.TargetArea.X == TempTargetArea.CurrentArea.X &&
@@ -1028,20 +1056,20 @@ void oled_ui_draw_menu_elements(void){
 				//如果page->MenuItems[i]._LineSlip小于负的字符串宽度，说明字符串已经左移到看不见
 				if(page->General_MenuItems[i]._LineSlip < -StringLength){
 					//将位置设在最大限定宽度的右侧刚刚好看不见的地方
-					page->General_MenuItems[i]._LineSlip = (TempTargetArea.TargetArea.X + TempTargetArea.TargetArea.Width - 6) - CursorPoint.X - LinePerfixWidth;
+					page->General_MenuItems[i]._LineSlip = MaxTextWidth;
 				}
-
-
+			}else{
+				page->General_MenuItems[i]._LineSlip = 0;
 			}
 
-			OLED_PrintfMixArea(TempTargetArea.CurrentArea.X + LinePerfixWidth + CurrentMenuPage->List_StartPointX ,
+			OLED_PrintfMixArea(TempTargetArea.CurrentArea.X + LinePerfixWidth + CurrentMenuPage->List_StartPointX + FixedPrefixWidth,
 			 					TempTargetArea.CurrentArea.Y,
-			 					TempTargetArea.CurrentArea.Width - 6 - LinePerfixWidth - CurrentMenuPage->List_StartPointX  -2 - RadioCompensationWidth,
+			 					MaxTextWidth,
 			 					TempTargetArea.CurrentArea.Height,
 								//坐标加上LinePerfixWidth是为了给行前缀留下空间
-							   	CursorPoint.X + LinePerfixWidth + page->General_MenuItems[i]._LineSlip,
+							   	CursorPoint.X + LinePerfixWidth + FixedPrefixWidth + page->General_MenuItems[i]._LineSlip,
 							   	CursorPoint.Y,
-							   	ChineseFont,ASCIIFont,page->General_MenuItems[i].General_item_text);
+							   	ChineseFont,ASCIIFont,"%s",display_text == NULL ? "" : display_text);
 
 			// 打印光标下移
 			CursorPoint.Y += (page->General_FontSize + OLED_UI_LineStep.CurrentDistance);
