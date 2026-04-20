@@ -21,9 +21,11 @@
 #include "network/esp01s_at.h"
 #include "cloud/aliyun_iot_mqtt.h"
 #include "oled_ui_core_app.h"
+#include "device_service.h"
+#include "sensor_service.h"
 
 #define GPIO_LED    GET_PIN(B, 2)
-#define BOOT_STEP_TOTAL 5U
+#define BOOT_STEP_TOTAL 7U
 
 int main(void)
 {
@@ -41,11 +43,17 @@ int main(void)
     ret = dht11_init();
     oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "DHT11 INIT", ret);
 
+    ret = sensor_service_start();
+    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "SENSOR THREAD", ret);
+
     ret = esp01s_start_connect();
     oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "ESP THREAD", ret);
 
     ret = aliyun_iot_start();
     oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "ALIYUN THREAD", ret);
+
+    ret = device_service_start();
+    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "DEVICE SERVICE", ret);
 
     oled_ui_boot_complete();
     ret = oled_ui_core_start();

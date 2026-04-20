@@ -19,7 +19,7 @@
 #include "network/esp01s_at.h"
 #include "aliyun_iot_mqtt.h"
 #include "data/todo_snapshot.h"
-#include "sensor/dht11.h"
+#include "app/sensor_service.h"
 
 #define DBG_TAG    "ali.iot"
 #define DBG_LVL    DBG_INFO
@@ -86,11 +86,6 @@ typedef struct
 } sha1_ctx_t;
 
 static aliyun_iot_ctx_t g_ali;
-static dht11_sample_t g_dht11_last_sample = {235, 500};
-static rt_bool_t g_dht11_has_sample = RT_FALSE;
-static rt_err_t g_dht11_last_error = -RT_EEMPTY;
-static rt_tick_t g_dht11_last_tick = 0;
-static rt_tick_t g_dht11_last_attempt_tick = 0;
 static rt_bool_t g_ali_thread_started = RT_FALSE;
 static char g_ali_recv_topic[ALIYUN_IOT_RECV_TOPIC_MAX];
 static char g_ali_recv_buf[ALIYUN_IOT_RECV_BUF_MAX];
@@ -103,27 +98,6 @@ static char g_ali_report_queue[ALIYUN_IOT_REPORT_QUEUE_SIZE][ALIYUN_IOT_REPORT_B
 static rt_uint8_t g_ali_report_head = 0;
 static rt_uint8_t g_ali_report_tail = 0;
 static rt_uint8_t g_ali_report_count = 0;
-
-static rt_err_t ali_refresh_sensor_cache(void)
-{
-    dht11_sample_t sample;
-    rt_err_t ret;
-
-    ret = dht11_read(&sample);
-    g_dht11_last_attempt_tick = rt_tick_get();
-
-    if (ret == RT_EOK)
-    {
-        g_dht11_last_sample = sample;
-        g_dht11_has_sample = RT_TRUE;
-        g_dht11_last_error = RT_EOK;
-        g_dht11_last_tick = g_dht11_last_attempt_tick;
-        return RT_EOK;
-    }
-
-    g_dht11_last_error = ret;
-    return ret;
-}
 
 static void ali_report_queue_init(void)
 {
@@ -858,23 +832,21 @@ static rt_err_t ali_build_payload(char *payload,
 static rt_err_t ali_publish_sample(const aliyun_iot_auth_t *auth, rt_uint32_t seq)
 {
     char payload[256];
+    sensor_service_status_t sensor_status;
     rt_int32_t temp_x10;
     rt_int32_t humi_x10;
     rt_err_t ret;
 
-    ret = ali_refresh_sensor_cache();
-    if ((ret != RT_EOK) && !g_dht11_has_sample)
+    sensor_service_get_status(&sensor_status);
+    ret = sensor_status.last_error;
+    if ((ret != RT_EOK) && !sensor_status.has_sample)
     {
         rt_kprintf("[DHT11] read failed before first valid sample: %d\r\n", ret);
         return -RT_EEMPTY;
     }
-    if (ret != RT_EOK)
-    {
-        rt_kprintf("[DHT11] read failed, keep last sample: %d\r\n", ret);
-    }
 
-    temp_x10 = g_dht11_last_sample.temperature_x10;
-    humi_x10 = g_dht11_last_sample.humidity_x10;
+    temp_x10 = sensor_status.sample.temperature_x10;
+    humi_x10 = sensor_status.sample.humidity_x10;
 
     ret = ali_build_payload(payload, sizeof(payload), seq, temp_x10, humi_x10);
     if (ret != RT_EOK)
@@ -947,12 +919,6 @@ static void ali_iot_thread(void *parameter)
 
     while (1)
     {
-        if ((!g_dht11_has_sample) ||
-            ((rt_tick_get() - g_dht11_last_attempt_tick) >= rt_tick_from_millisecond(ALIYUN_IOT_PUB_PERIOD_MS)))
-        {
-            (void)ali_refresh_sensor_cache();
-        }
-
         if (!ali_wifi_ready(&wifi))
         {
             if (g_ali.mqtt_connected)
@@ -1146,15 +1112,18 @@ void aliyun_iot_get_status(aliyun_iot_status_t *status)
 
 void aliyun_iot_get_sensor_status(aliyun_iot_sensor_status_t *status)
 {
+    sensor_service_status_t sensor_status;
+
     if (status == RT_NULL)
     {
         return;
     }
 
     memset(status, 0, sizeof(*status));
-    status->has_sample = g_dht11_has_sample;
-    status->last_read_error = g_dht11_last_error;
-    status->sample_tick = g_dht11_last_tick;
-    status->sample = g_dht11_last_sample;
+    sensor_service_get_status(&sensor_status);
+    status->has_sample = sensor_status.has_sample;
+    status->last_read_error = sensor_status.last_error;
+    status->sample_tick = sensor_status.sample_tick;
+    status->sample = sensor_status.sample;
 }
 

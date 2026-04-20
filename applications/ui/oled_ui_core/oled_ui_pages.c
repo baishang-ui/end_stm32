@@ -7,6 +7,7 @@
 #include "data/todo_snapshot.h"
 #include "cloud/aliyun_iot_mqtt.h"
 #include "network/esp01s_at.h"
+#include "app/device_service.h"
 
 #define UI_SCAN_MAX_APS     8
 #define UI_TODO_LINE_LEN    80
@@ -16,53 +17,24 @@
 #define UI_PC_STATUS_LEN    24
 #define UI_PC_STEP          2
 #define UI_PC_MAX_LEVEL     100
-#define HID_USAGE_BRIGHTNESS_INC   0x006FU
-#define HID_USAGE_BRIGHTNESS_DEC   0x0070U
-#define HID_USAGE_VOLUME_INC       0x00E9U
-#define HID_USAGE_VOLUME_DEC       0x00EAU
-
-typedef enum
-{
-    WIFI_JOB_NONE = 0,
-    WIFI_JOB_SCAN,
-    WIFI_JOB_CONNECT,
-    WIFI_JOB_REJOIN,
-} wifi_job_type_t;
-
-typedef struct
-{
-    wifi_job_type_t type;
-    char ssid[33];
-    rt_uint8_t ecn;
-} wifi_job_ctx_t;
 
 extern MenuPage *CurrentMenuPage;
 extern int16_t OLED_UI_Brightness;
 extern bool OLED_UI_ShowFps;
 extern bool ColorMode;
-extern rt_bool_t usb_hid_is_ready(void);
-extern rt_bool_t usb_hid_can_send(void);
-extern rt_err_t usb_hid_send_consumer_usage(rt_uint16_t usage);
-extern rt_uint32_t usb_hid_get_polling_interval_ms(void);
 
 static char s_todo_lines[TODO_SNAPSHOT_MAX_ITEMS][UI_TODO_LINE_LEN];
 static char s_ap_lines[UI_SCAN_MAX_APS][UI_AP_LINE_LEN];
 static char s_status_lines[4][UI_STATUS_LINE_LEN];
 static char s_pc_status_line[UI_PC_STATUS_LEN];
+static char s_pc_hint_line[UI_PC_STATUS_LEN];
 static rt_uint32_t s_todo_display_count = 0;
 static rt_size_t s_scan_display_count = 0;
-static volatile rt_uint8_t s_wifi_job_busy = 0;
 static char s_saved_join_ssid[33] = "Bai";
 static rt_uint8_t s_saved_join_ecn = 0;
 static MenuPage *s_last_page = RT_NULL;
 static int16_t s_pc_volume = 50;
 static int16_t s_pc_brightness = 50;
-static int16_t s_pc_volume_shadow = 50;
-static int16_t s_pc_brightness_shadow = 50;
-static rt_int16_t s_pc_volume_pending = 0;
-static rt_int16_t s_pc_brightness_pending = 0;
-static rt_uint8_t s_pc_release_pending = 0U;
-static rt_tick_t s_pc_last_report_tick = 0U;
 
 static void ui_handle_wifi_scan_selection(void);
 static void ui_toggle_todo_completion(void);
@@ -216,7 +188,7 @@ static void ui_toggle_todo_completion(void)
 
     ui_sync_todo_items();
     ui_clamp_page_cursor(&TodoMenuPage, s_todo_display_count);
-    (void)aliyun_iot_queue_todo_report(&change);
+    (void)device_net_service_queue_todo_report(&change);
 }
 
 static void ui_sync_scan_items(void)
@@ -291,68 +263,6 @@ static void ui_clamp_page_cursor(MenuPage *page, rt_uint32_t count)
     }
 }
 
-static void ui_wifi_job_thread(void *parameter)
-{
-    wifi_job_ctx_t *ctx = (wifi_job_ctx_t *)parameter;
-
-    if (ctx != RT_NULL)
-    {
-        if (ctx->type == WIFI_JOB_SCAN)
-        {
-            esp01s_scan_aps();
-        }
-        else if (ctx->type == WIFI_JOB_CONNECT)
-        {
-            esp01s_join_saved_ap(ctx->ssid, ctx->ecn);
-        }
-        else if (ctx->type == WIFI_JOB_REJOIN)
-        {
-            esp01s_join_default_ap();
-        }
-    }
-
-    s_wifi_job_busy = 0U;
-    if (ctx != RT_NULL)
-    {
-        rt_free(ctx);
-    }
-}
-
-static void ui_start_wifi_job(wifi_job_type_t type, const char *ssid, rt_uint8_t ecn)
-{
-    rt_thread_t thread;
-    wifi_job_ctx_t *ctx;
-
-    if (s_wifi_job_busy != 0U)
-    {
-        return;
-    }
-
-    ctx = (wifi_job_ctx_t *)rt_calloc(1, sizeof(*ctx));
-    if (ctx == RT_NULL)
-    {
-        return;
-    }
-
-    ctx->type = type;
-    ctx->ecn = ecn;
-    if (ssid != RT_NULL)
-    {
-        rt_strncpy(ctx->ssid, ssid, sizeof(ctx->ssid) - 1U);
-        ctx->ssid[sizeof(ctx->ssid) - 1U] = '\0';
-    }
-
-    thread = rt_thread_create("uiwifi", ui_wifi_job_thread, ctx, 2048, 17, 10);
-    if (thread == RT_NULL)
-    {
-        rt_free(ctx);
-        return;
-    }
-
-    s_wifi_job_busy = 1U;
-    rt_thread_startup(thread);
-}
-
 static void ui_open_brightness_window(void)
 {
     static MenuWindow window = {
@@ -424,12 +334,12 @@ static void ui_open_pc_brightness_window(void)
 
 static void ui_request_wifi_scan(void)
 {
-    ui_start_wifi_job(WIFI_JOB_SCAN, RT_NULL, 0U);
+    (void)device_net_service_request_scan();
 }
 
 static void ui_request_wifi_rejoin(void)
 {
-    ui_start_wifi_job(WIFI_JOB_REJOIN, s_saved_join_ssid, s_saved_join_ecn);
+    (void)device_net_service_request_rejoin();
 }
 
 static void ui_handle_wifi_scan_selection(void)
@@ -440,13 +350,13 @@ static void ui_handle_wifi_scan_selection(void)
 
     if (index <= 0)
     {
-        ui_start_wifi_job(WIFI_JOB_SCAN, RT_NULL, 0U);
+        (void)device_net_service_request_scan();
         return;
     }
 
     if (((rt_size_t)(index - 1)) < count)
     {
-        ui_start_wifi_job(WIFI_JOB_CONNECT, aps[index - 1].ssid, aps[index - 1].ecn);
+        (void)device_net_service_request_connect(aps[index - 1].ssid, aps[index - 1].ecn);
         rt_strncpy(s_saved_join_ssid, aps[index - 1].ssid, sizeof(s_saved_join_ssid) - 1U);
         s_saved_join_ssid[sizeof(s_saved_join_ssid) - 1U] = '\0';
         s_saved_join_ecn = aps[index - 1].ecn;
@@ -521,140 +431,23 @@ static void ui_sync_status_items(void)
     StatusMenuItems[4].General_item_text = RT_NULL;
 }
 
-static void ui_pc_queue_steps(rt_int16_t *pending, rt_int32_t delta)
-{
-    rt_int32_t steps;
-    rt_int32_t total;
-
-    if ((pending == RT_NULL) || (delta == 0))
-    {
-        return;
-    }
-
-    steps = delta / UI_PC_STEP;
-    if (steps == 0)
-    {
-        steps = (delta > 0) ? 1 : -1;
-    }
-
-    total = (rt_int32_t)(*pending) + steps;
-    if (total > 120)
-    {
-        total = 120;
-    }
-    else if (total < -120)
-    {
-        total = -120;
-    }
-
-    *pending = (rt_int16_t)total;
-}
-
-static void ui_pc_service_hid(rt_bool_t usb_ready)
-{
-    rt_tick_t now;
-    rt_tick_t min_gap;
-    rt_uint32_t poll_ms;
-    rt_uint16_t usage = 0U;
-
-    if (usb_ready == RT_FALSE)
-    {
-        s_pc_volume_pending = 0;
-        s_pc_brightness_pending = 0;
-        s_pc_release_pending = 0U;
-        return;
-    }
-
-    poll_ms = usb_hid_get_polling_interval_ms();
-    min_gap = (rt_tick_t)(((rt_uint64_t)poll_ms * RT_TICK_PER_SECOND + 999U) / 1000U);
-    if (min_gap == 0U)
-    {
-        min_gap = 1U;
-    }
-
-    now = rt_tick_get();
-    if ((s_pc_last_report_tick != 0U) && ((now - s_pc_last_report_tick) < min_gap))
-    {
-        return;
-    }
-
-    if (s_pc_release_pending != 0U)
-    {
-        if (usb_hid_send_consumer_usage(0U) == RT_EOK)
-        {
-            s_pc_release_pending = 0U;
-            s_pc_last_report_tick = now;
-        }
-        return;
-    }
-
-    if (s_pc_volume_pending > 0)
-    {
-        usage = HID_USAGE_VOLUME_INC;
-        s_pc_volume_pending--;
-    }
-    else if (s_pc_volume_pending < 0)
-    {
-        usage = HID_USAGE_VOLUME_DEC;
-        s_pc_volume_pending++;
-    }
-    else if (s_pc_brightness_pending > 0)
-    {
-        usage = HID_USAGE_BRIGHTNESS_INC;
-        s_pc_brightness_pending--;
-    }
-    else if (s_pc_brightness_pending < 0)
-    {
-        usage = HID_USAGE_BRIGHTNESS_DEC;
-        s_pc_brightness_pending++;
-    }
-
-    if ((usage != 0U) && (usb_hid_send_consumer_usage(usage) == RT_EOK))
-    {
-        s_pc_release_pending = 1U;
-        s_pc_last_report_tick = now;
-    }
-}
-
 static void ui_update_pc_control(void)
 {
-    rt_bool_t usb_ready = usb_hid_is_ready();
-
-    if (usb_ready != RT_FALSE)
-    {
-        if (s_pc_volume != s_pc_volume_shadow)
-        {
-            ui_pc_queue_steps(&s_pc_volume_pending, (rt_int32_t)s_pc_volume - (rt_int32_t)s_pc_volume_shadow);
-            s_pc_volume_shadow = s_pc_volume;
-        }
-
-        if (s_pc_brightness != s_pc_brightness_shadow)
-        {
-            ui_pc_queue_steps(&s_pc_brightness_pending, (rt_int32_t)s_pc_brightness - (rt_int32_t)s_pc_brightness_shadow);
-            s_pc_brightness_shadow = s_pc_brightness;
-        }
-    }
-    else
-    {
-        s_pc_volume_shadow = s_pc_volume;
-        s_pc_brightness_shadow = s_pc_brightness;
-    }
-
-    ui_pc_service_hid(usb_ready);
+    (void)device_usb_service_set_targets(s_pc_volume, s_pc_brightness);
 }
 
 static void ui_sync_pc_items(void)
 {
     const char *usb_state;
+    device_usb_service_status_t usb_status;
 
-    if (usb_hid_is_ready() == RT_FALSE)
+    device_usb_service_get_status(&usb_status);
+
+    if (usb_status.ready == RT_FALSE)
     {
-        usb_state = "USB: WAIT";
+        usb_state = (usb_status.stack_started == RT_FALSE) ? "USB: OFF" : "USB: ENUM";
     }
-    else if ((usb_hid_can_send() == RT_FALSE) ||
-             (s_pc_release_pending != 0U) ||
-             (s_pc_volume_pending != 0) ||
-             (s_pc_brightness_pending != 0))
+    else if ((usb_status.can_send == RT_FALSE) || (usb_status.queued_steps != 0U))
     {
         usb_state = "USB: SEND";
     }
@@ -665,6 +458,8 @@ static void ui_sync_pc_items(void)
 
     rt_strncpy(s_pc_status_line, usb_state, sizeof(s_pc_status_line) - 1U);
     s_pc_status_line[sizeof(s_pc_status_line) - 1U] = '\0';
+    rt_strncpy(s_pc_hint_line, "P:EDIT H:BACK", sizeof(s_pc_hint_line) - 1U);
+    s_pc_hint_line[sizeof(s_pc_hint_line) - 1U] = '\0';
 
     PCControlMenuItems[0].General_item_text = "VOLUME";
     PCControlMenuItems[0].General_callback = ui_open_pc_volume_window;
@@ -687,7 +482,14 @@ static void ui_sync_pc_items(void)
     PCControlMenuItems[2].List_IntBox = RT_NULL;
     PCControlMenuItems[2].List_FloatBox = RT_NULL;
 
-    PCControlMenuItems[3].General_item_text = RT_NULL;
+    PCControlMenuItems[3].General_item_text = s_pc_hint_line;
+    PCControlMenuItems[3].General_callback = RT_NULL;
+    PCControlMenuItems[3].General_SubMenuPage = RT_NULL;
+    PCControlMenuItems[3].List_BoolRadioBox = RT_NULL;
+    PCControlMenuItems[3].List_IntBox = RT_NULL;
+    PCControlMenuItems[3].List_FloatBox = RT_NULL;
+
+    PCControlMenuItems[4].General_item_text = RT_NULL;
 }
 
 MenuItem MainMenuItems[] = {
@@ -717,10 +519,11 @@ MenuItem WiFiScanMenuItems[UI_SCAN_MAX_APS + 2] = {
     { .General_item_text = RT_NULL },
 };
 
-MenuItem PCControlMenuItems[4] = {
+MenuItem PCControlMenuItems[5] = {
     { .General_item_text = "VOLUME", .General_callback = ui_open_pc_volume_window, .General_SubMenuPage = RT_NULL, .List_IntBox = &s_pc_volume },
     { .General_item_text = "BRIGHT", .General_callback = ui_open_pc_brightness_window, .General_SubMenuPage = RT_NULL, .List_IntBox = &s_pc_brightness },
     { .General_item_text = "USB: WAIT" },
+    { .General_item_text = "P:EDIT H:BACK" },
     { .General_item_text = RT_NULL },
 };
 
@@ -868,14 +671,17 @@ void oled_ui_prepare_pages(void)
     }
     else if (CurrentMenuPage == &PCControlMenuPage)
     {
-        ui_clamp_page_cursor(&PCControlMenuPage, 3U);
+        ui_clamp_page_cursor(&PCControlMenuPage, 4U);
     }
     else if (CurrentMenuPage == &WiFiScanMenuPage)
     {
+        device_net_service_status_t net_status;
+
         ui_clamp_page_cursor(&WiFiScanMenuPage, s_scan_display_count);
-        if ((s_last_page != &WiFiScanMenuPage) && (s_wifi_job_busy == 0U))
+        device_net_service_get_status(&net_status);
+        if ((s_last_page != &WiFiScanMenuPage) && (net_status.busy == RT_FALSE))
         {
-            ui_start_wifi_job(WIFI_JOB_SCAN, RT_NULL, 0U);
+            (void)device_net_service_request_scan();
         }
     }
     else if (CurrentMenuPage == &StatusMenuPage)
