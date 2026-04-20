@@ -34,6 +34,10 @@
 
 #define HID_KBD_KEY_D               0x07U
 #define HID_KBD_KEY_E               0x08U
+#define HID_KBD_KEY_I               0x0CU
+#define HID_KBD_KEY_L               0x0FU
+#define HID_KBD_KEY_R               0x15U
+#define HID_KBD_KEY_S               0x16U
 #define HID_KBD_KEY_ESCAPE          0x29U
 #define HID_KBD_KEY_TAB             0x2BU
 
@@ -67,7 +71,14 @@ typedef struct
     rt_uint8_t modifier;
     rt_uint8_t key_count;
     rt_uint8_t keys[USB_HID_KEYBOARD_MAX_KEYS];
-} device_usb_shortcut_t;
+} device_usb_shortcut_binding_t;
+
+typedef struct
+{
+    device_usb_shortcut_preset_t preset;
+    const char *label;
+    device_usb_shortcut_binding_t binding;
+} device_usb_shortcut_preset_entry_t;
 
 typedef enum
 {
@@ -76,7 +87,7 @@ typedef enum
     DEVICE_USB_RELEASE_KEYBOARD,
 } device_usb_release_t;
 
-static const rt_base_t s_usb_shortcut_pins[DEVICE_USB_SHORTCUT_COUNT] =
+static const rt_base_t s_usb_shortcut_pins[DEVICE_USB_SHORTCUT_SLOT_COUNT] =
 {
     DEVICE_USB_SHORTCUT_PIN_1,
     DEVICE_USB_SHORTCUT_PIN_2,
@@ -84,13 +95,17 @@ static const rt_base_t s_usb_shortcut_pins[DEVICE_USB_SHORTCUT_COUNT] =
     DEVICE_USB_SHORTCUT_PIN_4,
 };
 
-/* Default Windows-oriented shortcuts. Update this table to remap the four keys. */
-static const device_usb_shortcut_t s_usb_shortcuts[DEVICE_USB_SHORTCUT_COUNT] =
+static const device_usb_shortcut_preset_entry_t s_usb_shortcut_presets[DEVICE_USB_SHORTCUT_PRESET_COUNT] =
 {
-    { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_D, 0U, 0U, 0U, 0U, 0U } },
-    { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_E, 0U, 0U, 0U, 0U, 0U } },
-    { HID_KBD_MOD_LALT, 1U, { HID_KBD_KEY_TAB, 0U, 0U, 0U, 0U, 0U } },
-    { (rt_uint8_t)(HID_KBD_MOD_LCTRL | HID_KBD_MOD_LSHIFT), 1U, { HID_KBD_KEY_ESCAPE, 0U, 0U, 0U, 0U, 0U } },
+    { DEVICE_USB_SHORTCUT_PRESET_NONE, "无操作", { 0U, 0U, { 0U, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_SHOW_DESKTOP, "显示桌面", { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_D, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_FILE_MANAGER, "文件管理", { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_E, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_TASK_SWITCHER, "任务切换", { HID_KBD_MOD_LALT, 1U, { HID_KBD_KEY_TAB, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_TASK_MANAGER, "任务管理", { (rt_uint8_t)(HID_KBD_MOD_LCTRL | HID_KBD_MOD_LSHIFT), 1U, { HID_KBD_KEY_ESCAPE, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_LOCK_PC, "锁定电脑", { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_L, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_SNIP_TOOL, "截图工具", { (rt_uint8_t)(HID_KBD_MOD_LGUI | HID_KBD_MOD_LSHIFT), 1U, { HID_KBD_KEY_S, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_SYSTEM_SETTINGS, "系统设置", { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_I, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_RUN_DIALOG, "运行窗口", { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_R, 0U, 0U, 0U, 0U, 0U } } },
 };
 
 static struct rt_messagequeue s_net_mq;
@@ -112,8 +127,15 @@ static rt_int16_t s_usb_pending_volume = 0;
 static rt_int16_t s_usb_pending_brightness = 0;
 static rt_int16_t s_usb_cmd_volume = 0;
 static rt_int16_t s_usb_cmd_brightness = 0;
-static rt_uint8_t s_usb_shortcut_pending[DEVICE_USB_SHORTCUT_COUNT];
-static device_usb_button_t s_usb_shortcut_buttons[DEVICE_USB_SHORTCUT_COUNT];
+static rt_uint8_t s_usb_shortcut_pending[DEVICE_USB_SHORTCUT_SLOT_COUNT];
+static device_usb_button_t s_usb_shortcut_buttons[DEVICE_USB_SHORTCUT_SLOT_COUNT];
+static device_usb_shortcut_preset_t s_usb_shortcut_slot_presets[DEVICE_USB_SHORTCUT_SLOT_COUNT] =
+{
+    DEVICE_USB_SHORTCUT_PRESET_SHOW_DESKTOP,
+    DEVICE_USB_SHORTCUT_PRESET_FILE_MANAGER,
+    DEVICE_USB_SHORTCUT_PRESET_TASK_SWITCHER,
+    DEVICE_USB_SHORTCUT_PRESET_TASK_MANAGER,
+};
 static rt_bool_t s_usb_shortcut_buttons_inited = RT_FALSE;
 static device_usb_release_t s_usb_release_pending = DEVICE_USB_RELEASE_NONE;
 static rt_tick_t s_usb_last_report_tick = 0U;
@@ -219,7 +241,7 @@ static void device_usb_shortcut_buttons_init(void)
     }
 
     debounce_ticks = rt_tick_from_millisecond(DEVICE_USB_BUTTON_DEBOUNCE_MS);
-    for (index = 0; index < DEVICE_USB_SHORTCUT_COUNT; index++)
+    for (index = 0; index < DEVICE_USB_SHORTCUT_SLOT_COUNT; index++)
     {
         device_usb_button_init(&s_usb_shortcut_buttons[index],
                                s_usb_shortcut_pins[index],
@@ -234,7 +256,7 @@ static rt_uint16_t device_usb_count_shortcuts_locked(void)
     rt_uint32_t index;
     rt_uint16_t total = 0U;
 
-    for (index = 0; index < DEVICE_USB_SHORTCUT_COUNT; index++)
+    for (index = 0; index < DEVICE_USB_SHORTCUT_SLOT_COUNT; index++)
     {
         total = (rt_uint16_t)(total + s_usb_shortcut_pending[index]);
     }
@@ -247,38 +269,58 @@ static void device_usb_clear_shortcuts_locked(void)
     memset(s_usb_shortcut_pending, 0, sizeof(s_usb_shortcut_pending));
 }
 
-static rt_err_t device_usb_enqueue_shortcut_locked(device_usb_shortcut_id_t shortcut_id)
+static const device_usb_shortcut_preset_entry_t *device_usb_get_preset_entry(device_usb_shortcut_preset_t preset)
 {
-    if (((rt_uint32_t)shortcut_id) >= DEVICE_USB_SHORTCUT_COUNT)
+    if (((rt_uint32_t)preset) >= DEVICE_USB_SHORTCUT_PRESET_COUNT)
+    {
+        return RT_NULL;
+    }
+
+    return &s_usb_shortcut_presets[preset];
+}
+
+static device_usb_shortcut_preset_t device_usb_get_slot_preset_locked(device_usb_shortcut_slot_t slot)
+{
+    if (((rt_uint32_t)slot) >= DEVICE_USB_SHORTCUT_SLOT_COUNT)
+    {
+        return DEVICE_USB_SHORTCUT_PRESET_NONE;
+    }
+
+    return s_usb_shortcut_slot_presets[slot];
+}
+
+static rt_err_t device_usb_enqueue_shortcut_locked(device_usb_shortcut_slot_t slot)
+{
+    if (((rt_uint32_t)slot) >= DEVICE_USB_SHORTCUT_SLOT_COUNT)
     {
         return -RT_EINVAL;
     }
 
-    if (s_usb_shortcut_pending[shortcut_id] < DEVICE_USB_SHORTCUT_QUEUE_LIMIT)
+    if (s_usb_shortcut_pending[slot] < DEVICE_USB_SHORTCUT_QUEUE_LIMIT)
     {
-        s_usb_shortcut_pending[shortcut_id]++;
+        s_usb_shortcut_pending[slot]++;
     }
 
     return RT_EOK;
 }
 
-static rt_bool_t device_usb_pop_shortcut(device_usb_shortcut_id_t *shortcut_id)
+static rt_bool_t device_usb_pop_shortcut(device_usb_shortcut_slot_t *slot)
 {
     rt_uint32_t index;
     rt_bool_t found = RT_FALSE;
 
-    if (shortcut_id == RT_NULL)
+    if (slot == RT_NULL)
     {
         return RT_FALSE;
     }
 
     rt_mutex_take(&s_usb_lock, RT_WAITING_FOREVER);
-    for (index = 0; index < DEVICE_USB_SHORTCUT_COUNT; index++)
+    for (index = 0; index < DEVICE_USB_SHORTCUT_SLOT_COUNT; index++)
     {
         if (s_usb_shortcut_pending[index] > 0U)
         {
             s_usb_shortcut_pending[index]--;
-            *shortcut_id = (device_usb_shortcut_id_t)index;
+            *slot = (device_usb_shortcut_slot_t)index;
             found = RT_TRUE;
             break;
         }
@@ -297,12 +339,12 @@ static void device_usb_scan_shortcut_buttons(void)
         return;
     }
 
-    for (index = 0; index < DEVICE_USB_SHORTCUT_COUNT; index++)
+    for (index = 0; index < DEVICE_USB_SHORTCUT_SLOT_COUNT; index++)
     {
         if (device_usb_button_poll_press(&s_usb_shortcut_buttons[index]) != RT_FALSE)
         {
             rt_mutex_take(&s_usb_lock, RT_WAITING_FOREVER);
-            (void)device_usb_enqueue_shortcut_locked((device_usb_shortcut_id_t)index);
+            (void)device_usb_enqueue_shortcut_locked((device_usb_shortcut_slot_t)index);
             rt_mutex_release(&s_usb_lock);
         }
     }
@@ -323,19 +365,34 @@ static rt_err_t device_usb_send_release_report(device_usb_release_t release_type
     }
 }
 
-static rt_err_t device_usb_send_shortcut(device_usb_shortcut_id_t shortcut_id)
+static rt_err_t device_usb_send_shortcut(device_usb_shortcut_slot_t slot)
 {
-    const device_usb_shortcut_t *shortcut;
+    const device_usb_shortcut_preset_entry_t *preset_entry;
+    device_usb_shortcut_preset_t preset;
 
-    if (((rt_uint32_t)shortcut_id) >= DEVICE_USB_SHORTCUT_COUNT)
+    if (((rt_uint32_t)slot) >= DEVICE_USB_SHORTCUT_SLOT_COUNT)
     {
         return -RT_EINVAL;
     }
 
-    shortcut = &s_usb_shortcuts[shortcut_id];
-    return usb_hid_send_keyboard_report(shortcut->modifier,
-                                        shortcut->keys,
-                                        shortcut->key_count);
+    rt_mutex_take(&s_usb_lock, RT_WAITING_FOREVER);
+    preset = device_usb_get_slot_preset_locked(slot);
+    rt_mutex_release(&s_usb_lock);
+
+    preset_entry = device_usb_get_preset_entry(preset);
+    if (preset_entry == RT_NULL)
+    {
+        return -RT_EINVAL;
+    }
+
+    if (preset_entry->preset == DEVICE_USB_SHORTCUT_PRESET_NONE)
+    {
+        return -RT_ENOSYS;
+    }
+
+    return usb_hid_send_keyboard_report(preset_entry->binding.modifier,
+                                        preset_entry->binding.keys,
+                                        preset_entry->binding.key_count);
 }
 
 static void device_net_set_status(rt_bool_t busy,
@@ -443,7 +500,7 @@ static void device_usb_thread(void *parameter)
         rt_bool_t stack_started = usb_hid_is_started();
         rt_bool_t ready = usb_hid_is_ready();
         rt_bool_t can_send = (ready != RT_FALSE) ? usb_hid_can_send() : RT_FALSE;
-        device_usb_shortcut_id_t shortcut_id;
+        device_usb_shortcut_slot_t shortcut_slot;
         rt_bool_t has_shortcut = RT_FALSE;
         rt_tick_t min_gap;
         rt_tick_t now;
@@ -535,19 +592,25 @@ static void device_usb_thread(void *parameter)
                 {
                     rt_uint16_t usage = 0U;
 
-                    has_shortcut = device_usb_pop_shortcut(&shortcut_id);
+                    has_shortcut = device_usb_pop_shortcut(&shortcut_slot);
                     if (has_shortcut != RT_FALSE)
                     {
-                        if (device_usb_send_shortcut(shortcut_id) == RT_EOK)
+                        rt_err_t shortcut_ret = device_usb_send_shortcut(shortcut_slot);
+
+                        if (shortcut_ret == RT_EOK)
                         {
                             s_usb_release_pending = DEVICE_USB_RELEASE_KEYBOARD;
                             s_usb_last_report_tick = now;
                             last_error = RT_EOK;
                         }
+                        else if (shortcut_ret == -RT_ENOSYS)
+                        {
+                            last_error = RT_EOK;
+                        }
                         else
                         {
                             rt_mutex_take(&s_usb_lock, RT_WAITING_FOREVER);
-                            (void)device_usb_enqueue_shortcut_locked(shortcut_id);
+                            (void)device_usb_enqueue_shortcut_locked(shortcut_slot);
                             rt_mutex_release(&s_usb_lock);
                             last_error = -RT_EBUSY;
                         }
@@ -786,7 +849,7 @@ rt_err_t device_usb_service_adjust(rt_int16_t volume_delta, rt_int16_t brightnes
     return RT_EOK;
 }
 
-rt_err_t device_usb_service_trigger_shortcut(device_usb_shortcut_id_t shortcut_id)
+rt_err_t device_usb_service_trigger_shortcut(device_usb_shortcut_slot_t slot)
 {
     rt_err_t ret;
 
@@ -796,10 +859,63 @@ rt_err_t device_usb_service_trigger_shortcut(device_usb_shortcut_id_t shortcut_i
     }
 
     rt_mutex_take(&s_usb_lock, RT_WAITING_FOREVER);
-    ret = device_usb_enqueue_shortcut_locked(shortcut_id);
+    ret = device_usb_enqueue_shortcut_locked(slot);
     rt_mutex_release(&s_usb_lock);
 
     return ret;
+}
+
+rt_err_t device_usb_service_set_shortcut_preset(device_usb_shortcut_slot_t slot,
+                                                device_usb_shortcut_preset_t preset)
+{
+    if (((rt_uint32_t)slot) >= DEVICE_USB_SHORTCUT_SLOT_COUNT)
+    {
+        return -RT_EINVAL;
+    }
+
+    if (((rt_uint32_t)preset) >= DEVICE_USB_SHORTCUT_PRESET_COUNT)
+    {
+        return -RT_EINVAL;
+    }
+
+    rt_mutex_take(&s_usb_lock, RT_WAITING_FOREVER);
+    s_usb_shortcut_slot_presets[slot] = preset;
+    rt_mutex_release(&s_usb_lock);
+
+    return RT_EOK;
+}
+
+device_usb_shortcut_preset_t device_usb_service_get_shortcut_preset(device_usb_shortcut_slot_t slot)
+{
+    device_usb_shortcut_preset_t preset = DEVICE_USB_SHORTCUT_PRESET_NONE;
+
+    if (((rt_uint32_t)slot) >= DEVICE_USB_SHORTCUT_SLOT_COUNT)
+    {
+        return DEVICE_USB_SHORTCUT_PRESET_NONE;
+    }
+
+    if (!s_usb_inited)
+    {
+        return s_usb_shortcut_slot_presets[slot];
+    }
+
+    rt_mutex_take(&s_usb_lock, RT_WAITING_FOREVER);
+    preset = s_usb_shortcut_slot_presets[slot];
+    rt_mutex_release(&s_usb_lock);
+
+    return preset;
+}
+
+const char *device_usb_service_get_shortcut_preset_label(device_usb_shortcut_preset_t preset)
+{
+    const device_usb_shortcut_preset_entry_t *preset_entry = device_usb_get_preset_entry(preset);
+
+    if (preset_entry == RT_NULL)
+    {
+        return "无操作";
+    }
+
+    return preset_entry->label;
 }
 
 void device_usb_service_get_status(device_usb_service_status_t *status)

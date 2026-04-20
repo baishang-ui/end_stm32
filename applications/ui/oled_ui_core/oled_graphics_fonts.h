@@ -6,7 +6,7 @@
 
 
 /*中文字符字节宽度*/
-#define OLED_CHN_CHAR_WIDTH			(2)		//UTF-8编码格式给3，GB2312编码格式给2
+#define OLED_CHN_CHAR_WIDTH			(3)		//UTF-8编码格式给3，GB2312编码格式给2
 
 /*字模基本单元*/
 typedef struct 

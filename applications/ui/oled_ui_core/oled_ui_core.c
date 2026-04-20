@@ -1,5 +1,6 @@
 ﻿#include "oled_ui_core.h"
 #include "oled_ui_launcher.h"
+#include "ui/oled_ui_app/app_ui_runtime.h"
 
 
 #ifdef OLED_UI
@@ -544,7 +545,7 @@ int16_t oled_ui_calc_string_width(int16_t ChineseFont, int16_t ASCIIFont, const 
     while (*ptr != '\0') {
         if ((unsigned char)*ptr & 0x80) { // 处理中文字符
             StringLength += ChineseFont;
-            ptr += 2;
+            ptr += OLED_CHN_CHAR_WIDTH;
         } else {
             StringLength += ASCIIFont;
             ptr++;
@@ -682,7 +683,7 @@ void oled_ui_draw_window(void){
                         OLED_UI_Window.CurrentArea.Width == OLED_UI_Window.TargetArea.Width &&
                         OLED_UI_Window.CurrentArea.Height == OLED_UI_Window.TargetArea.Height){
 #endif
-		    	CurrentWindow->_LineSlip-= (float)LINE_SLIP_SPEED;
+		    	CurrentWindow->_LineSlip -= AppUI_TextScrollSpeed;
 #if IF_WAIT_ANIMATION_FINISH
                 }
 #endif
@@ -1074,7 +1075,7 @@ void oled_ui_draw_menu_elements(void){
 					TempTargetArea.TargetArea.Height == TempTargetArea.CurrentArea.Height &&
 					TempTargetArea.TargetArea.Y == TempTargetArea.CurrentArea.Y){
 #endif
-						page->General_MenuItems[i]._LineSlip -= (float)LINE_SLIP_SPEED;
+						page->General_MenuItems[i]._LineSlip -= AppUI_TextScrollSpeed;
 #if IF_WAIT_ANIMATION_FINISH
 					}
 #endif
@@ -1145,7 +1146,7 @@ void oled_ui_draw_menu_elements(void){
 		    if(OLED_UI_PageStartPoint.CurrentPoint.X == OLED_UI_PageStartPoint.TargetPoint.X &&
 		        OLED_UI_PageStartPoint.CurrentPoint.Y == OLED_UI_PageStartPoint.TargetPoint.Y ){
 #endif
-		        page->General_MenuItems[page->_ActiveMenuID]._LineSlip -= (float)LINE_SLIP_SPEED;
+		        page->General_MenuItems[page->_ActiveMenuID]._LineSlip -= AppUI_TextScrollSpeed;
 #if IF_WAIT_ANIMATION_FINISH
 		    }
 #endif
@@ -1450,7 +1451,7 @@ void oled_ui_run_fade_out(void){
 	*/
 	if(FadeOutFlag != FLAGEND){
 		if (FadeOut_Seq != 0){	//如果当前不是步骤0
-			if ((FadeOut_Seq_StartTick + FADEOUT_TIME) < HAL_GetTick()){	//计时FADEOUT_TIME毫秒
+			if ((FadeOut_Seq_StartTick + (rt_tick_t)AppUI_FadeStepMs) < HAL_GetTick()){	//计时淡出间隔毫秒
 				FadeOut_Seq++;
 				FadeOut_Seq_StartTick = HAL_GetTick();	//记录每一步的开始时间
 			}

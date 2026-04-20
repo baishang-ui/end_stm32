@@ -3,6 +3,7 @@
  * 在此文件当中，部分是b站up江协科技的函数，在此诚挚感谢。
 */
 #include "oled_graphics.h"
+#include "ui/oled_ui_app/app_ui_font_ext.h"
 /**
   * 声明OLED显存数组，此数组已经在OLED_Driver.c中定义
   * 所有的显示函数，都只是对此显存数组进行读写
@@ -10,6 +11,52 @@
   * 才会将显存数组的数据发送到OLED硬件，进行显示
   */
 extern uint8_t OLED_DisplayBuf[OLED_HEIGHT/8][OLED_WIDTH];
+
+static const uint8_t *OLED_FindChineseBitmap12(const char *index)
+{
+    uint8_t font_index;
+
+    for (font_index = 0; strcmp(OLED_CF12x12[font_index].Index, "") != 0; font_index++)
+    {
+        if (strcmp(OLED_CF12x12[font_index].Index, index) == 0)
+        {
+            return OLED_CF12x12[font_index].Data;
+        }
+    }
+
+    for (font_index = 0; strcmp(AppUI_CF12x12[font_index].Index, "") != 0; font_index++)
+    {
+        if (strcmp(AppUI_CF12x12[font_index].Index, index) == 0)
+        {
+            return AppUI_CF12x12[font_index].Data;
+        }
+    }
+
+    return OLED_CF12x12[font_index].Data;
+}
+
+static const uint8_t *OLED_FindChineseBitmap16(const char *index)
+{
+    uint8_t font_index;
+
+    for (font_index = 0; strcmp(OLED_CF16x16[font_index].Index, "") != 0; font_index++)
+    {
+        if (strcmp(OLED_CF16x16[font_index].Index, index) == 0)
+        {
+            return OLED_CF16x16[font_index].Data;
+        }
+    }
+
+    for (font_index = 0; strcmp(AppUI_CF16x16[font_index].Index, "") != 0; font_index++)
+    {
+        if (strcmp(AppUI_CF16x16[font_index].Index, index) == 0)
+        {
+            return AppUI_CF16x16[font_index].Data;
+        }
+    }
+
+    return OLED_CF16x16[font_index].Data;
+}
 
 
 /*********************工具函数↓********************/
@@ -581,24 +628,18 @@ void OLED_ShowChinese(int16_t X, int16_t Y, char *Chinese, uint8_t FontSize)
 				OLED_ShowImage(X + ((i + 1) / OLED_CHN_CHAR_WIDTH - 1) * OLED_8X8_FULL, Y, OLED_8X8_FULL, OLED_8X8_FULL, ((const ChineseCell8x8_t*)fontArray)[pIndex].Data);
 			}else
 			if(FontSize==OLED_12X12_FULL){
-				for (pIndex = 0; strcmp(((const ChineseCell12x12_t*)fontArray)[pIndex].Index, "") != 0; pIndex ++)
-				{
-					if (strcmp(((const ChineseCell12x12_t*)fontArray)[pIndex].Index, SingleChinese) == 0)
-					{
-						break;
-					}
-				}
-				OLED_ShowImage(X + ((i + 1) / OLED_CHN_CHAR_WIDTH - 1) * OLED_12X12_FULL, Y, OLED_12X12_FULL, OLED_12X12_FULL, ((const ChineseCell12x12_t*)fontArray)[pIndex].Data);
+				OLED_ShowImage(X + ((i + 1) / OLED_CHN_CHAR_WIDTH - 1) * OLED_12X12_FULL,
+				              Y,
+				              OLED_12X12_FULL,
+				              OLED_12X12_FULL,
+				              OLED_FindChineseBitmap12(SingleChinese));
 			}else
 			if(FontSize==OLED_16X16_FULL){
-				for (pIndex = 0; strcmp(((const ChineseCell16x16_t*)fontArray)[pIndex].Index, "") != 0; pIndex ++)
-				{
-					if (strcmp(((const ChineseCell16x16_t*)fontArray)[pIndex].Index, SingleChinese) == 0)
-					{
-						break;
-					}
-				}
-				OLED_ShowImage(X + ((i + 1) / OLED_CHN_CHAR_WIDTH - 1) * OLED_16X16_FULL, Y, OLED_16X16_FULL, OLED_16X16_FULL, ((const ChineseCell16x16_t*)fontArray)[pIndex].Data);
+				OLED_ShowImage(X + ((i + 1) / OLED_CHN_CHAR_WIDTH - 1) * OLED_16X16_FULL,
+				              Y,
+				              OLED_16X16_FULL,
+				              OLED_16X16_FULL,
+				              OLED_FindChineseBitmap16(SingleChinese));
 			}else
 			if(FontSize==OLED_20X20_FULL){
 				for (pIndex = 0; strcmp(((const ChineseCell20x20_t*)fontArray)[pIndex].Index, "") != 0; pIndex ++)
@@ -843,18 +884,26 @@ void OLED_ShowChineseArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16
 					OLED_ShowImageArea(X + ((i + 1) / OLED_CHN_CHAR_WIDTH - 1) * OLED_8X8_FULL, Y, OLED_8X8_FULL, OLED_8X8_FULL, RangeX, RangeY, RangeWidth, RangeHeight, ((const ChineseCell8x8_t*)fontArray)[pIndex].Data);
 				}else
 				if(FontSize==OLED_12X12_FULL){
-					for (pIndex = 0; strcmp(((const ChineseCell12x12_t*)fontArray)[pIndex].Index, "") != 0; pIndex ++)
-					{
-						if (strcmp(((const ChineseCell12x12_t*)fontArray)[pIndex].Index, SingleChinese) == 0){break;}
-					}
-					OLED_ShowImageArea(X + ((i + 1) / OLED_CHN_CHAR_WIDTH - 1) * OLED_12X12_FULL, Y, OLED_12X12_FULL, OLED_12X12_FULL, RangeX, RangeY, RangeWidth, RangeHeight, ((const ChineseCell12x12_t*)fontArray)[pIndex].Data);
+					OLED_ShowImageArea(X + ((i + 1) / OLED_CHN_CHAR_WIDTH - 1) * OLED_12X12_FULL,
+					                  Y,
+					                  OLED_12X12_FULL,
+					                  OLED_12X12_FULL,
+					                  RangeX,
+					                  RangeY,
+					                  RangeWidth,
+					                  RangeHeight,
+					                  OLED_FindChineseBitmap12(SingleChinese));
 				}else
 				if(FontSize==OLED_16X16_FULL){
-					for (pIndex = 0; strcmp(((const ChineseCell16x16_t*)fontArray)[pIndex].Index, "") != 0; pIndex ++)
-					{
-						if (strcmp(((const ChineseCell16x16_t*)fontArray)[pIndex].Index, SingleChinese) == 0){break;}
-					}
-					OLED_ShowImageArea(X + ((i + 1) / OLED_CHN_CHAR_WIDTH - 1) * OLED_16X16_FULL, Y, OLED_16X16_FULL, OLED_16X16_FULL, RangeX, RangeY, RangeWidth, RangeHeight,((const ChineseCell16x16_t*)fontArray)[pIndex].Data);
+					OLED_ShowImageArea(X + ((i + 1) / OLED_CHN_CHAR_WIDTH - 1) * OLED_16X16_FULL,
+					                  Y,
+					                  OLED_16X16_FULL,
+					                  OLED_16X16_FULL,
+					                  RangeX,
+					                  RangeY,
+					                  RangeWidth,
+					                  RangeHeight,
+					                  OLED_FindChineseBitmap16(SingleChinese));
 				}else
 				if(FontSize==OLED_20X20_FULL){
 					for (pIndex = 0; strcmp(((const ChineseCell20x20_t*)fontArray)[pIndex].Index, "") != 0; pIndex ++)

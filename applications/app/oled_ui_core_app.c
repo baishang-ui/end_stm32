@@ -2,7 +2,7 @@
 #include <string.h>
 
 #include "ui/oled_ui_core/oled_ui_core.h"
-#include "ui/oled_ui_core/oled_ui_pages.h"
+#include "ui/oled_ui_app/app_ui_pages.h"
 #include "ui/oled_ui_core/oled_graphics.h"
 #include "ui/oled_ui_core/oled_hal_input.h"
 #include "oled_ui_core_app.h"
@@ -125,7 +125,7 @@ static void oled_ui_core_thread(void *parameter)
             last_input_tick = rt_tick_get();
         }
 
-        oled_ui_prepare_pages();
+        app_ui_refresh_pages();
         oled_ui_main_loop();
         rt_thread_mdelay(8);
     }
