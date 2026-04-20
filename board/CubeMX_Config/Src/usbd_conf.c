@@ -121,6 +121,14 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
         return USBD_FAIL;
     }
 
+    /* Endpoint 2 is used by the dedicated keyboard HID interface. */
+    hal_status = HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_FS, 2U, 0x10U);
+    usb_ll_log_status("HAL_PCDEx_SetTxFiFo(2)", hal_status);
+    if (hal_status != HAL_OK)
+    {
+        return USBD_FAIL;
+    }
+
     HAL_NVIC_SetPriority(OTG_FS_IRQn, 5U, 0U);
     HAL_NVIC_EnableIRQ(OTG_FS_IRQn);
 

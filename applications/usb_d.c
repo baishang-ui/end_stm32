@@ -10,11 +10,16 @@
 
 #include <rtthread.h>
 
+#include "usb_d.h"
 #include "usb_device.h"
 #include "usbd_def.h"
 #include "usbd_customhid.h"
 
 #define USB_HID_POLLING_INTERVAL_MS    10U
+#define USB_HID_CONSUMER_BRIGHTNESS_INC_MASK  0x01U
+#define USB_HID_CONSUMER_BRIGHTNESS_DEC_MASK  0x02U
+#define USB_HID_CONSUMER_VOLUME_INC_MASK      0x04U
+#define USB_HID_CONSUMER_VOLUME_DEC_MASK      0x08U
 
 static rt_bool_t s_usb_init_done = RT_FALSE;
 static rt_uint8_t s_last_state = 0xFFU;
@@ -24,7 +29,11 @@ static void usb_hid_log_state(void)
     if (hUsbDeviceFS.dev_state != s_last_state)
     {
         s_last_state = hUsbDeviceFS.dev_state;
-        rt_kprintf("[USB HID] state=%u\n", (unsigned int)s_last_state);
+        rt_kprintf("[USB HID] state=%u old=%u cfg=%u addr=%u\n",
+                   (unsigned int)hUsbDeviceFS.dev_state,
+                   (unsigned int)hUsbDeviceFS.dev_old_state,
+                   (unsigned int)hUsbDeviceFS.dev_config,
+                   (unsigned int)hUsbDeviceFS.dev_address);
     }
 }
 
@@ -43,7 +52,18 @@ static rt_err_t usb_hid_ensure_init(void)
 
 static rt_bool_t usb_hid_is_enumerated(void)
 {
-    return (hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED) ? RT_TRUE : RT_FALSE;
+    if (hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED)
+    {
+        return RT_TRUE;
+    }
+
+    if ((hUsbDeviceFS.dev_state == USBD_STATE_SUSPENDED) &&
+        (hUsbDeviceFS.dev_old_state == USBD_STATE_CONFIGURED))
+    {
+        return RT_TRUE;
+    }
+
+    return RT_FALSE;
 }
 
 static rt_bool_t usb_hid_tx_idle(void)
@@ -56,7 +76,8 @@ static rt_bool_t usb_hid_tx_idle(void)
     }
 
     hhid = (USBD_CUSTOM_HID_HandleTypeDef *)hUsbDeviceFS.pClassData;
-    return (hhid->state == CUSTOM_HID_IDLE) ? RT_TRUE : RT_FALSE;
+    return ((hhid->ConsumerState == CUSTOM_HID_IDLE) &&
+            (hhid->KeyboardState == CUSTOM_HID_IDLE)) ? RT_TRUE : RT_FALSE;
 }
 
 rt_bool_t usb_hid_is_ready(void)
@@ -79,7 +100,7 @@ rt_bool_t usb_hid_can_send(void)
         return RT_FALSE;
     }
 
-    return ((usb_hid_is_enumerated() != RT_FALSE) &&
+    return ((hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED) &&
             (usb_hid_tx_idle() != RT_FALSE)) ? RT_TRUE : RT_FALSE;
 }
 
@@ -88,10 +109,14 @@ rt_uint32_t usb_hid_get_polling_interval_ms(void)
     return USB_HID_POLLING_INTERVAL_MS;
 }
 
-rt_err_t usb_hid_send_consumer_usage(rt_uint16_t usage)
+static rt_err_t usb_hid_send_report(const uint8_t *report, uint16_t report_size)
 {
-    uint8_t report[2];
     uint8_t status;
+
+    if ((report == RT_NULL) || (report_size == 0U))
+    {
+        return -RT_EINVAL;
+    }
 
     (void)usb_hid_ensure_init();
 
@@ -100,16 +125,82 @@ rt_err_t usb_hid_send_consumer_usage(rt_uint16_t usage)
         return -RT_EBUSY;
     }
 
-    report[0] = (uint8_t)(usage & 0xFFU);
-    report[1] = (uint8_t)((usage >> 8) & 0xFFU);
+    if (report_size == USB_CONSUMER_REPORT_SIZE)
+    {
+        status = USBD_CUSTOM_HID_SendConsumerReport(&hUsbDeviceFS, (uint8_t *)report, report_size);
+    }
+    else if (report_size == USB_KEYBOARD_REPORT_SIZE)
+    {
+        status = USBD_CUSTOM_HID_SendKeyboardReport(&hUsbDeviceFS, (uint8_t *)report, report_size);
+    }
+    else
+    {
+        return -RT_EINVAL;
+    }
 
-    status = USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, report, sizeof(report));
     if (status != USBD_OK)
     {
         return -RT_EBUSY;
     }
 
     return RT_EOK;
+}
+
+rt_err_t usb_hid_send_consumer_usage(rt_uint16_t usage)
+{
+    uint8_t report[USB_CONSUMER_REPORT_SIZE];
+    uint8_t consumer_bits = 0U;
+
+    switch (usage)
+    {
+    case 0x0000U:
+        consumer_bits = 0U;
+        break;
+
+    case 0x006FU:
+        consumer_bits = USB_HID_CONSUMER_BRIGHTNESS_INC_MASK;
+        break;
+
+    case 0x0070U:
+        consumer_bits = USB_HID_CONSUMER_BRIGHTNESS_DEC_MASK;
+        break;
+
+    case 0x00E9U:
+        consumer_bits = USB_HID_CONSUMER_VOLUME_INC_MASK;
+        break;
+
+    case 0x00EAU:
+        consumer_bits = USB_HID_CONSUMER_VOLUME_DEC_MASK;
+        break;
+
+    default:
+        return -RT_EINVAL;
+    }
+
+    report[0] = consumer_bits;
+
+    return usb_hid_send_report(report, sizeof(report));
+}
+
+rt_err_t usb_hid_send_keyboard_report(rt_uint8_t modifier,
+                                      const rt_uint8_t *keys,
+                                      rt_uint8_t key_count)
+{
+    uint8_t report[USB_KEYBOARD_REPORT_SIZE] = {0};
+
+    if (key_count > USB_HID_KEYBOARD_MAX_KEYS)
+    {
+        return -RT_EINVAL;
+    }
+
+    report[0] = modifier;
+
+    if ((keys != RT_NULL) && (key_count > 0U))
+    {
+        rt_memcpy(&report[2], keys, key_count);
+    }
+
+    return usb_hid_send_report(report, sizeof(report));
 }
 
 static int usb_hid_driver_init(void)

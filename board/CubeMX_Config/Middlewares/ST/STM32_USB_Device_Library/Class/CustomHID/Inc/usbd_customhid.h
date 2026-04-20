@@ -41,13 +41,16 @@ extern "C" {
 /** @defgroup USBD_CUSTOM_HID_Exported_Defines
   * @{
   */
-#define CUSTOM_HID_EPIN_ADDR                 0x81U
-#define CUSTOM_HID_EPIN_SIZE                 0x02U
+#define CUSTOM_HID_CONSUMER_INTERFACE        0x00U
+#define CUSTOM_HID_KEYBOARD_INTERFACE        0x01U
 
-#define CUSTOM_HID_EPOUT_ADDR                0x01U
-#define CUSTOM_HID_EPOUT_SIZE                0x02U
+#define CUSTOM_HID_CONSUMER_EPIN_ADDR        0x81U
+#define CUSTOM_HID_CONSUMER_EPIN_SIZE        0x01U
+#define CUSTOM_HID_KEYBOARD_EPIN_ADDR        0x82U
+#define CUSTOM_HID_KEYBOARD_EPIN_SIZE        0x08U
 
-#define USB_CUSTOM_HID_CONFIG_DESC_SIZ       41U
+#define USB_CUSTOM_HID_INTERFACE_COUNT       2U
+#define USB_CUSTOM_HID_CONFIG_DESC_SIZ       59U
 #define USB_CUSTOM_HID_DESC_SIZ              9U
 
 #ifndef CUSTOM_HID_HS_BINTERVAL
@@ -59,11 +62,10 @@ extern "C" {
 #endif /* CUSTOM_HID_FS_BINTERVAL */
 
 #ifndef USBD_CUSTOMHID_OUTREPORT_BUF_SIZE
-#define USBD_CUSTOMHID_OUTREPORT_BUF_SIZE  0x02U
+#define USBD_CUSTOMHID_OUTREPORT_BUF_SIZE  0x08U
 #endif /* USBD_CUSTOMHID_OUTREPORT_BUF_SIZE */
-#ifndef USBD_CUSTOM_HID_REPORT_DESC_SIZE
-#define USBD_CUSTOM_HID_REPORT_DESC_SIZE   163U
-#endif /* USBD_CUSTOM_HID_REPORT_DESC_SIZE */
+#define USBD_CUSTOM_HID_CONSUMER_REPORT_DESC_SIZE  29U
+#define USBD_CUSTOM_HID_KEYBOARD_REPORT_DESC_SIZE  63U
 
 #define CUSTOM_HID_DESCRIPTOR_TYPE           0x21U
 #define CUSTOM_HID_REPORT_DESC               0x22U
@@ -93,21 +95,24 @@ CUSTOM_HID_StateTypeDef;
 
 typedef struct _USBD_CUSTOM_HID_Itf
 {
-  uint8_t                  *pReport;
+  uint8_t                  *pConsumerReport;
+  uint8_t                  *pKeyboardReport;
   int8_t (* Init)(void);
   int8_t (* DeInit)(void);
-  int8_t (* OutEvent)(uint8_t event_idx, uint8_t state);
+  int8_t (* OutEvent)(uint8_t if_idx, uint8_t event_idx, uint8_t state);
 
 } USBD_CUSTOM_HID_ItfTypeDef;
 
 typedef struct
 {
   uint8_t              Report_buf[USBD_CUSTOMHID_OUTREPORT_BUF_SIZE];
-  uint32_t             Protocol;
-  uint32_t             IdleState;
-  uint32_t             AltSetting;
+  uint8_t              Report_if;
+  uint32_t             Protocol[USB_CUSTOM_HID_INTERFACE_COUNT];
+  uint32_t             IdleState[USB_CUSTOM_HID_INTERFACE_COUNT];
+  uint32_t             AltSetting[USB_CUSTOM_HID_INTERFACE_COUNT];
   uint32_t             IsReportAvailable;
-  CUSTOM_HID_StateTypeDef     state;
+  CUSTOM_HID_StateTypeDef ConsumerState;
+  CUSTOM_HID_StateTypeDef KeyboardState;
 }
 USBD_CUSTOM_HID_HandleTypeDef;
 /**
@@ -137,9 +142,13 @@ extern USBD_ClassTypeDef  USBD_CUSTOM_HID;
 /** @defgroup USB_CORE_Exported_Functions
   * @{
   */
-uint8_t USBD_CUSTOM_HID_SendReport(USBD_HandleTypeDef *pdev,
-                                   uint8_t *report,
-                                   uint16_t len);
+uint8_t USBD_CUSTOM_HID_SendConsumerReport(USBD_HandleTypeDef *pdev,
+                                           uint8_t *report,
+                                           uint16_t len);
+
+uint8_t USBD_CUSTOM_HID_SendKeyboardReport(USBD_HandleTypeDef *pdev,
+                                           uint8_t *report,
+                                           uint16_t len);
 
 
 

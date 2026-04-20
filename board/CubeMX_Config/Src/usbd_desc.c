@@ -2,12 +2,12 @@
 #include "usbd_desc.h"
 
 #define USBD_VID                              0x0FFEU
-#define USBD_PID                              0x0001U
+#define USBD_PID                              0x0004U
 #define USBD_LANGID_STRING                    0x0409U
 #define USBD_MANUFACTURER_STRING              "LC@SC"
-#define USBD_PRODUCT_STRING                   "LC@SC Consumer HID"
-#define USBD_CONFIGURATION_STRING             "Consumer Config"
-#define USBD_INTERFACE_STRING                 "Consumer Control"
+#define USBD_PRODUCT_STRING                   "LC@SC Composite HID Pad"
+#define USBD_CONFIGURATION_STRING             "Composite HID Config"
+#define USBD_INTERFACE_STRING                 "Composite HID Interface"
 
 static uint8_t *USBD_FS_DeviceDescriptor(USBD_SpeedTypeDef speed, uint16_t *length);
 static uint8_t *USBD_FS_LangIDStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length);
@@ -45,7 +45,7 @@ __ALIGN_BEGIN static uint8_t USBD_DeviceDesc[USB_LEN_DEV_DESC] __ALIGN_END =
     LOBYTE(USBD_PID),
     HIBYTE(USBD_PID),
     0x00,
-    0x02,
+    0x04,
     USBD_IDX_MFC_STR,
     USBD_IDX_PRODUCT_STR,
     USBD_IDX_SERIAL_STR,

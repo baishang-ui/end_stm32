@@ -16,9 +16,10 @@
 #define UI_STATUS_LINE_LEN  32
 #define UI_PC_STATUS_LEN    24
 #define UI_PC_STEP          2
-#define UI_PC_MAX_LEVEL     100
+#define UI_PC_REL_LIMIT     24
 
 extern MenuPage *CurrentMenuPage;
+extern MenuWindow *CurrentWindow;
 extern int16_t OLED_UI_Brightness;
 extern bool OLED_UI_ShowFps;
 extern bool ColorMode;
@@ -33,8 +34,10 @@ static rt_size_t s_scan_display_count = 0;
 static char s_saved_join_ssid[33] = "Bai";
 static rt_uint8_t s_saved_join_ecn = 0;
 static MenuPage *s_last_page = RT_NULL;
-static int16_t s_pc_volume = 50;
-static int16_t s_pc_brightness = 50;
+static int16_t s_pc_volume = 0;
+static int16_t s_pc_brightness = 0;
+static int16_t s_pc_volume_shadow = 0;
+static int16_t s_pc_brightness_shadow = 0;
 
 static void ui_handle_wifi_scan_selection(void);
 static void ui_toggle_todo_completion(void);
@@ -288,19 +291,22 @@ static void ui_open_brightness_window(void)
 
 static void ui_open_pc_volume_window(void)
 {
+    s_pc_volume = 0;
+    s_pc_volume_shadow = 0;
+
     static MenuWindow window = {
         .General_Width = 96,
         .General_Height = 28,
         .General_ContinueTime = 2.0f,
         .General_WindowType = WINDOW_ROUNDRECTANGLE,
-        .Text_String = "PC VOLUME",
+        .Text_String = "VOL DELTA",
         .Text_FontSize = OLED_UI_FONT_12,
         .Text_FontSideDistance = 4,
         .Text_FontTopDistance = 3,
         .Prob_Data_Int = &s_pc_volume,
         .Prob_DataStep = UI_PC_STEP,
-        .Prob_MinData = 0,
-        .Prob_MaxData = UI_PC_MAX_LEVEL,
+        .Prob_MinData = -UI_PC_REL_LIMIT,
+        .Prob_MaxData = UI_PC_REL_LIMIT,
         .Prob_BottomDistance = 3,
         .Prob_SideDistance = 4,
         .Prob_LineHeight = 8,
@@ -311,19 +317,22 @@ static void ui_open_pc_volume_window(void)
 
 static void ui_open_pc_brightness_window(void)
 {
+    s_pc_brightness = 0;
+    s_pc_brightness_shadow = 0;
+
     static MenuWindow window = {
         .General_Width = 96,
         .General_Height = 28,
         .General_ContinueTime = 2.0f,
         .General_WindowType = WINDOW_ROUNDRECTANGLE,
-        .Text_String = "PC BRIGHT",
+        .Text_String = "BRT DELTA",
         .Text_FontSize = OLED_UI_FONT_12,
         .Text_FontSideDistance = 4,
         .Text_FontTopDistance = 3,
         .Prob_Data_Int = &s_pc_brightness,
         .Prob_DataStep = UI_PC_STEP,
-        .Prob_MinData = 0,
-        .Prob_MaxData = UI_PC_MAX_LEVEL,
+        .Prob_MinData = -UI_PC_REL_LIMIT,
+        .Prob_MaxData = UI_PC_REL_LIMIT,
         .Prob_BottomDistance = 3,
         .Prob_SideDistance = 4,
         .Prob_LineHeight = 8,
@@ -433,7 +442,23 @@ static void ui_sync_status_items(void)
 
 static void ui_update_pc_control(void)
 {
-    (void)device_usb_service_set_targets(s_pc_volume, s_pc_brightness);
+    rt_int16_t volume_delta = (rt_int16_t)(s_pc_volume - s_pc_volume_shadow);
+    rt_int16_t brightness_delta = (rt_int16_t)(s_pc_brightness - s_pc_brightness_shadow);
+
+    if ((volume_delta != 0) || (brightness_delta != 0))
+    {
+        (void)device_usb_service_adjust(volume_delta, brightness_delta);
+        s_pc_volume_shadow = s_pc_volume;
+        s_pc_brightness_shadow = s_pc_brightness;
+    }
+
+    if ((CurrentWindow == RT_NULL) && ((s_pc_volume != 0) || (s_pc_brightness != 0)))
+    {
+        s_pc_volume = 0;
+        s_pc_brightness = 0;
+        s_pc_volume_shadow = 0;
+        s_pc_brightness_shadow = 0;
+    }
 }
 
 static void ui_sync_pc_items(void)
@@ -458,21 +483,21 @@ static void ui_sync_pc_items(void)
 
     rt_strncpy(s_pc_status_line, usb_state, sizeof(s_pc_status_line) - 1U);
     s_pc_status_line[sizeof(s_pc_status_line) - 1U] = '\0';
-    rt_strncpy(s_pc_hint_line, "P:EDIT H:BACK", sizeof(s_pc_hint_line) - 1U);
+    rt_strncpy(s_pc_hint_line, "REL NO SYNC", sizeof(s_pc_hint_line) - 1U);
     s_pc_hint_line[sizeof(s_pc_hint_line) - 1U] = '\0';
 
-    PCControlMenuItems[0].General_item_text = "VOLUME";
+    PCControlMenuItems[0].General_item_text = "VOL +/-";
     PCControlMenuItems[0].General_callback = ui_open_pc_volume_window;
     PCControlMenuItems[0].General_SubMenuPage = RT_NULL;
     PCControlMenuItems[0].List_BoolRadioBox = RT_NULL;
-    PCControlMenuItems[0].List_IntBox = &s_pc_volume;
+    PCControlMenuItems[0].List_IntBox = RT_NULL;
     PCControlMenuItems[0].List_FloatBox = RT_NULL;
 
-    PCControlMenuItems[1].General_item_text = "BRIGHT";
+    PCControlMenuItems[1].General_item_text = "BRT +/-";
     PCControlMenuItems[1].General_callback = ui_open_pc_brightness_window;
     PCControlMenuItems[1].General_SubMenuPage = RT_NULL;
     PCControlMenuItems[1].List_BoolRadioBox = RT_NULL;
-    PCControlMenuItems[1].List_IntBox = &s_pc_brightness;
+    PCControlMenuItems[1].List_IntBox = RT_NULL;
     PCControlMenuItems[1].List_FloatBox = RT_NULL;
 
     PCControlMenuItems[2].General_item_text = s_pc_status_line;
@@ -520,10 +545,10 @@ MenuItem WiFiScanMenuItems[UI_SCAN_MAX_APS + 2] = {
 };
 
 MenuItem PCControlMenuItems[5] = {
-    { .General_item_text = "VOLUME", .General_callback = ui_open_pc_volume_window, .General_SubMenuPage = RT_NULL, .List_IntBox = &s_pc_volume },
-    { .General_item_text = "BRIGHT", .General_callback = ui_open_pc_brightness_window, .General_SubMenuPage = RT_NULL, .List_IntBox = &s_pc_brightness },
+    { .General_item_text = "VOL +/-", .General_callback = ui_open_pc_volume_window, .General_SubMenuPage = RT_NULL },
+    { .General_item_text = "BRT +/-", .General_callback = ui_open_pc_brightness_window, .General_SubMenuPage = RT_NULL },
     { .General_item_text = "USB: WAIT" },
-    { .General_item_text = "P:EDIT H:BACK" },
+    { .General_item_text = "REL NO SYNC" },
     { .General_item_text = RT_NULL },
 };
 
