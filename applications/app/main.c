@@ -38,17 +38,17 @@
 
 static const char * const g_boot_step_labels[BOOT_STEP_TOTAL] =
 {
-    "屏幕就绪",
-    "上电稳定",
-    "待办快照",
-    "传感器初始化",
-    "传感服务",
-    "网络服务",
-    "网络模块就绪",
-    "云端服务",
-    "云线程启动",
-    "设备服务",
-    "USB栈预热",
+    "oled init",
+    "power init",
+    "todolist init",
+    "sensor init",
+    "sensor server init",
+    "net init",
+    "net server init",
+    "cloud init",
+    "cloud update thread init",
+    "device server init",
+    "USB init",
 };
 
 static rt_err_t app_boot_delay(rt_uint32_t delay_ms)
