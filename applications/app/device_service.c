@@ -768,6 +768,27 @@ rt_err_t device_net_service_request_rejoin(void)
     return device_net_post(&msg);
 }
 
+rt_err_t device_net_service_request_todo_pull(void)
+{
+    rt_err_t ret;
+
+    if (s_net_inited)
+    {
+        device_net_set_status(RT_TRUE, RT_EOK, DEVICE_NET_JOB_TODO_PULL, RT_NULL);
+    }
+
+    ret = aliyun_iot_request_todo_pull();
+
+    if (s_net_inited)
+    {
+        device_net_set_status(RT_FALSE, ret, DEVICE_NET_JOB_NONE, RT_NULL);
+    }
+
+    rt_kprintf("[DEVNET] todo pull ret=%d\r\n", ret);
+
+    return ret;
+}
+
 rt_err_t device_net_service_queue_todo_report(const todo_snapshot_change_t *change)
 {
     rt_err_t ret;

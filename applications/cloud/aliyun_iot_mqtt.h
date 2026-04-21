@@ -38,6 +38,7 @@ int aliyun_iot_start(void);
 void aliyun_iot_get_status(aliyun_iot_status_t *status);
 void aliyun_iot_get_sensor_status(aliyun_iot_sensor_status_t *status);
 rt_err_t aliyun_iot_queue_todo_report(const todo_snapshot_change_t *change);
+rt_err_t aliyun_iot_request_todo_pull(void);
 
 #ifdef __cplusplus
 }

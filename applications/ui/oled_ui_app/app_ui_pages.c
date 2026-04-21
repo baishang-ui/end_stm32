@@ -39,7 +39,7 @@
 #define APP_UI_TXT_BRIGHTNESS_ADJUST "亮度调节"
 #define APP_UI_TXT_KEY_CONFIG        "快捷键设置"
 #define APP_UI_TXT_USB_STATUS        "USB连接状态"
-#define APP_UI_TXT_EMPTY_TODO        "暂无待办"
+#define APP_UI_TXT_EMPTY_TODO        "获取待办"
 #define APP_UI_TXT_KEY_PREFIX        "按键"
 #define APP_UI_TXT_WIFI_INFO         "当前网络信息"
 #define APP_UI_TXT_WIFI_LIST         "无线网络列表"
@@ -75,6 +75,7 @@ static rt_int16_t s_pc_brightness_shadow = 0;
 
 static void app_ui_request_scan(void);
 static void app_ui_request_rejoin(void);
+static void app_ui_request_todo_pull(void);
 static void app_ui_toggle_todo_item(void);
 static void app_ui_handle_scan_selection(void);
 static void app_ui_apply_shortcut_preset_selection(void);
@@ -402,6 +403,11 @@ static void app_ui_request_rejoin(void)
     (void)device_net_service_request_rejoin();
 }
 
+static void app_ui_request_todo_pull(void)
+{
+    (void)device_net_service_request_todo_pull();
+}
+
 static void app_ui_refresh_todo_items(void)
 {
     todo_snapshot_t snapshot;
@@ -416,10 +422,10 @@ static void app_ui_refresh_todo_items(void)
 
     if (s_visible_todo_count == 0U)
     {
-        rt_strncpy(s_todo_lines[0], "[ ] " APP_UI_TXT_EMPTY_TODO, sizeof(s_todo_lines[0]) - 1U);
+        rt_strncpy(s_todo_lines[0], APP_UI_TXT_EMPTY_TODO, sizeof(s_todo_lines[0]) - 1U);
         s_todo_lines[0][sizeof(s_todo_lines[0]) - 1U] = '\0';
         TodoMenuItems[0].General_item_text = s_todo_lines[0];
-        TodoMenuItems[0].General_callback = RT_NULL;
+        TodoMenuItems[0].General_callback = app_ui_request_todo_pull;
         TodoMenuItems[0].General_SubMenuPage = RT_NULL;
         TodoMenuItems[0].List_BoolRadioBox = RT_NULL;
         TodoMenuItems[0].List_IntBox = RT_NULL;
@@ -792,7 +798,7 @@ MenuItem MainMenuItems[] = {
 };
 
 MenuItem TodoMenuItems[TODO_SNAPSHOT_MAX_ITEMS + 1] = {
-    { .General_item_text = "[ ] " APP_UI_TXT_EMPTY_TODO },
+    { .General_item_text = APP_UI_TXT_EMPTY_TODO, .General_callback = app_ui_request_todo_pull },
     { .General_item_text = RT_NULL },
 };
 

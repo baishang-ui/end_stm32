@@ -99,6 +99,7 @@ static char g_ali_report_queue[ALIYUN_IOT_REPORT_QUEUE_SIZE][ALIYUN_IOT_REPORT_B
 static rt_uint8_t g_ali_report_head = 0;
 static rt_uint8_t g_ali_report_tail = 0;
 static rt_uint8_t g_ali_report_count = 0;
+static volatile rt_bool_t g_ali_todo_pull_pending = RT_FALSE;
 
 static void ali_report_queue_init(void)
 {
@@ -477,6 +478,29 @@ static rt_err_t ali_subscribe_todo_topic(void)
         return ret;
     }
 
+    g_ali_todo_pull_pending = RT_FALSE;
+    ali_set_state("PULL");
+    rt_kprintf("[ALI] todo pull requested\r\n");
+    return RT_EOK;
+}
+
+static rt_err_t ali_publish_todo_pull_request(void)
+{
+    rt_err_t ret;
+
+    ret = esp01s_mqtt_pubraw(ALIYUN_IOT_REPORT_TOPIC,
+                             ALIYUN_IOT_PULL_PAYLOAD,
+                             sizeof(ALIYUN_IOT_PULL_PAYLOAD) - 1U,
+                             0,
+                             RT_FALSE);
+    if (ret != RT_EOK)
+    {
+        rt_kprintf("[ALI] todo pull req failed: %d\r\n", ret);
+        rt_kprintf("[ALI] todo pull rsp: %s\r\n", esp01s_last_response());
+        return ret;
+    }
+
+    g_ali_todo_pull_pending = RT_FALSE;
     ali_set_state("PULL");
     rt_kprintf("[ALI] todo pull requested\r\n");
     return RT_EOK;
@@ -921,6 +945,13 @@ rt_err_t aliyun_iot_queue_todo_report(const todo_snapshot_change_t *change)
     return RT_EOK;
 }
 
+rt_err_t aliyun_iot_request_todo_pull(void)
+{
+    g_ali_todo_pull_pending = RT_TRUE;
+    rt_kprintf("[ALI] todo pull queued\r\n");
+    return RT_EOK;
+}
+
 static void ali_iot_thread(void *parameter)
 {
     esp01s_status_t wifi;
@@ -989,6 +1020,31 @@ static void ali_iot_thread(void *parameter)
             {
                 g_ali.reconnect_count++;
                 ali_update_status(RT_FALSE, ret, "RETRY");
+                ali_disconnect_mqtt();
+                rt_thread_mdelay(ALIYUN_IOT_RETRY_MS);
+                continue;
+            }
+        }
+
+        if (g_ali_todo_pull_pending != RT_FALSE)
+        {
+            ret = ali_publish_todo_pull_request();
+            if (ret == RT_EOK)
+            {
+                g_ali.last_error = RT_EOK;
+                continue;
+            }
+            if ((ret != -RT_EEMPTY) && (ret != -RT_ETIMEOUT))
+            {
+                g_ali.reconnect_count++;
+                g_ali.mqtt_connected = RT_FALSE;
+                g_ali.last_error = ret;
+                ali_set_state("PULL");
+                rt_kprintf("[ALI] queued todo pull failed: %d\r\n", ret);
+                if (esp01s_last_response()[0] != '\0')
+                {
+                    rt_kprintf("[ALI] queued todo pull rsp: %s\r\n", esp01s_last_response());
+                }
                 ali_disconnect_mqtt();
                 rt_thread_mdelay(ALIYUN_IOT_RETRY_MS);
                 continue;

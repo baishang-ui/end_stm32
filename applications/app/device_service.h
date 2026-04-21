@@ -15,6 +15,7 @@ typedef enum
     DEVICE_NET_JOB_WIFI_SCAN,
     DEVICE_NET_JOB_WIFI_CONNECT,
     DEVICE_NET_JOB_WIFI_REJOIN,
+    DEVICE_NET_JOB_TODO_PULL,
     DEVICE_NET_JOB_TODO_REPORT,
 } device_net_job_t;
 
@@ -67,6 +68,7 @@ int device_service_start(void);
 rt_err_t device_net_service_request_scan(void);
 rt_err_t device_net_service_request_connect(const char *ssid, rt_uint8_t ecn);
 rt_err_t device_net_service_request_rejoin(void);
+rt_err_t device_net_service_request_todo_pull(void);
 rt_err_t device_net_service_queue_todo_report(const todo_snapshot_change_t *change);
 void device_net_service_get_status(device_net_service_status_t *status);
 
