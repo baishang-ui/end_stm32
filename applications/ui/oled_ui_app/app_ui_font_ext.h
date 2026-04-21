@@ -7,8 +7,8 @@
 extern "C" {
 #endif
 
-extern const ChineseCell12x12_t AppUI_CF12x12[];
-extern const ChineseCell16x16_t AppUI_CF16x16[];
+/* Compatibility header.
+ * UI Chinese glyphs are now maintained in oled_graphics_fonts.c only. */
 
 #ifdef __cplusplus
 }

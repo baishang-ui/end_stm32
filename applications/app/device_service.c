@@ -97,15 +97,15 @@ static const rt_base_t s_usb_shortcut_pins[DEVICE_USB_SHORTCUT_SLOT_COUNT] =
 
 static const device_usb_shortcut_preset_entry_t s_usb_shortcut_presets[DEVICE_USB_SHORTCUT_PRESET_COUNT] =
 {
-    { DEVICE_USB_SHORTCUT_PRESET_NONE, "无操作", { 0U, 0U, { 0U, 0U, 0U, 0U, 0U, 0U } } },
-    { DEVICE_USB_SHORTCUT_PRESET_SHOW_DESKTOP, "显示桌面", { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_D, 0U, 0U, 0U, 0U, 0U } } },
-    { DEVICE_USB_SHORTCUT_PRESET_FILE_MANAGER, "文件管理", { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_E, 0U, 0U, 0U, 0U, 0U } } },
-    { DEVICE_USB_SHORTCUT_PRESET_TASK_SWITCHER, "任务切换", { HID_KBD_MOD_LALT, 1U, { HID_KBD_KEY_TAB, 0U, 0U, 0U, 0U, 0U } } },
-    { DEVICE_USB_SHORTCUT_PRESET_TASK_MANAGER, "任务管理", { (rt_uint8_t)(HID_KBD_MOD_LCTRL | HID_KBD_MOD_LSHIFT), 1U, { HID_KBD_KEY_ESCAPE, 0U, 0U, 0U, 0U, 0U } } },
-    { DEVICE_USB_SHORTCUT_PRESET_LOCK_PC, "锁定电脑", { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_L, 0U, 0U, 0U, 0U, 0U } } },
-    { DEVICE_USB_SHORTCUT_PRESET_SNIP_TOOL, "截图工具", { (rt_uint8_t)(HID_KBD_MOD_LGUI | HID_KBD_MOD_LSHIFT), 1U, { HID_KBD_KEY_S, 0U, 0U, 0U, 0U, 0U } } },
-    { DEVICE_USB_SHORTCUT_PRESET_SYSTEM_SETTINGS, "系统设置", { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_I, 0U, 0U, 0U, 0U, 0U } } },
-    { DEVICE_USB_SHORTCUT_PRESET_RUN_DIALOG, "运行窗口", { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_R, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_NONE, "\xE6\x97\xA0\xE6\x93\x8D\xE4\xBD\x9C", { 0U, 0U, { 0U, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_SHOW_DESKTOP, "\xE6\x98\xBE\xE7\xA4\xBA\xE6\xA1\x8C\xE9\x9D\xA2", { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_D, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_FILE_MANAGER, "\xE6\x96\x87\xE4\xBB\xB6\xE7\xAE\xA1\xE7\x90\x86", { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_E, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_TASK_SWITCHER, "\xE4\xBB\xBB\xE5\x8A\xA1\xE5\x88\x87\xE6\x8D\xA2", { HID_KBD_MOD_LALT, 1U, { HID_KBD_KEY_TAB, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_TASK_MANAGER, "\xE4\xBB\xBB\xE5\x8A\xA1\xE7\xAE\xA1\xE7\x90\x86", { (rt_uint8_t)(HID_KBD_MOD_LCTRL | HID_KBD_MOD_LSHIFT), 1U, { HID_KBD_KEY_ESCAPE, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_LOCK_PC, "\xE9\x94\x81\xE5\xAE\x9A\xE7\x94\xB5\xE8\x84\x91", { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_L, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_SNIP_TOOL, "\xE6\x88\xAA\xE5\x9B\xBE\xE5\xB7\xA5\xE5\x85\xB7", { (rt_uint8_t)(HID_KBD_MOD_LGUI | HID_KBD_MOD_LSHIFT), 1U, { HID_KBD_KEY_S, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_SYSTEM_SETTINGS, "\xE7\xB3\xBB\xE7\xBB\x9F\xE8\xAE\xBE\xE7\xBD\xAE", { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_I, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_RUN_DIALOG, "\xE8\xBF\x90\xE8\xA1\x8C\xE7\xAA\x97\xE5\x8F\xA3", { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_R, 0U, 0U, 0U, 0U, 0U } } },
 };
 
 static struct rt_messagequeue s_net_mq;
@@ -770,17 +770,32 @@ rt_err_t device_net_service_request_rejoin(void)
 
 rt_err_t device_net_service_queue_todo_report(const todo_snapshot_change_t *change)
 {
-    device_net_msg_t msg;
+    rt_err_t ret;
 
     if (change == RT_NULL)
     {
         return -RT_EINVAL;
     }
 
-    memset(&msg, 0, sizeof(msg));
-    msg.cmd = DEVICE_NET_CMD_TODO_REPORT;
-    msg.change = *change;
-    return device_net_post(&msg);
+    if (s_net_inited)
+    {
+        device_net_set_status(RT_TRUE, RT_EOK, DEVICE_NET_JOB_TODO_REPORT, RT_NULL);
+    }
+
+    ret = aliyun_iot_queue_todo_report(change);
+
+    if (s_net_inited)
+    {
+        device_net_set_status(RT_FALSE, ret, DEVICE_NET_JOB_NONE, RT_NULL);
+    }
+
+    rt_kprintf("[DEVNET] todo queue ret=%d id=%s completed=%d updatedAt=%llu\r\n",
+               ret,
+               change->item.id[0] ? change->item.id : "(empty)",
+               change->item.completed ? 1 : 0,
+               (unsigned long long)change->item.updated_at);
+
+    return ret;
 }
 
 void device_net_service_get_status(device_net_service_status_t *status)
@@ -912,8 +927,8 @@ const char *device_usb_service_get_shortcut_preset_label(device_usb_shortcut_pre
 
     if (preset_entry == RT_NULL)
     {
-        return "无操作";
-    }
+        return "\xE6\x97\xA0\xE6\x93\x8D\xE4\xBD\x9C";
+}
 
     return preset_entry->label;
 }

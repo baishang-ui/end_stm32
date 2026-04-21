@@ -3,7 +3,6 @@
  * 在此文件当中，部分是b站up江协科技的函数，在此诚挚感谢。
 */
 #include "oled_graphics.h"
-#include "ui/oled_ui_app/app_ui_font_ext.h"
 /**
   * 声明OLED显存数组，此数组已经在OLED_Driver.c中定义
   * 所有的显示函数，都只是对此显存数组进行读写
@@ -24,14 +23,6 @@ static const uint8_t *OLED_FindChineseBitmap12(const char *index)
         }
     }
 
-    for (font_index = 0; strcmp(AppUI_CF12x12[font_index].Index, "") != 0; font_index++)
-    {
-        if (strcmp(AppUI_CF12x12[font_index].Index, index) == 0)
-        {
-            return AppUI_CF12x12[font_index].Data;
-        }
-    }
-
     return OLED_CF12x12[font_index].Data;
 }
 
@@ -44,14 +35,6 @@ static const uint8_t *OLED_FindChineseBitmap16(const char *index)
         if (strcmp(OLED_CF16x16[font_index].Index, index) == 0)
         {
             return OLED_CF16x16[font_index].Data;
-        }
-    }
-
-    for (font_index = 0; strcmp(AppUI_CF16x16[font_index].Index, "") != 0; font_index++)
-    {
-        if (strcmp(AppUI_CF16x16[font_index].Index, index) == 0)
-        {
-            return AppUI_CF16x16[font_index].Data;
         }
     }
 
@@ -674,7 +657,7 @@ void OLED_Printf(int16_t X, int16_t Y, uint8_t FontSize, char *format, ...)
 	char String[MAX_STRING_LENGTH];						//定义字符数组
 	va_list arg;							//定义可变参数列表数据类型的变量arg
 	va_start(arg, format);					//从format开始，接收参数列表到arg变量
-	vsprintf(String, format, arg);			//使用vsprintf打印格式化字符串和参数列表到字符数组中
+	vsnprintf(String, sizeof(String), format, arg);
 	va_end(arg);							//结束变量arg
 	OLED_ShowString(X, Y, String, FontSize);//OLED显示字符数组（字符串）
 }
@@ -728,7 +711,7 @@ void OLED_PrintfMix(int16_t X, int16_t Y, uint8_t ChineseFontSize,uint8_t ASCIIF
 	char String[MAX_STRING_LENGTH];						//定义字符数组
 	va_list arg;							//定义可变参数列表数据类型的变量arg
 	va_start(arg, format);					//从format开始，接收参数列表到arg变量
-	vsprintf(String, format, arg);			//使用vsprintf打印格式化字符串和参数列表到字符数组中
+	vsnprintf(String, sizeof(String), format, arg);
 	va_end(arg);							//结束变量arg
 	OLED_ShowMixString( X, Y, String, ChineseFontSize,ASCIIFontSize);//OLED显示字符数组（字符串）
 }
@@ -939,7 +922,7 @@ void OLED_PrintfArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t Ra
 	char String[MAX_STRING_LENGTH];						//定义字符数组
 	va_list arg;							//定义可变参数列表数据类型的变量arg
 	va_start(arg, format);					//从format开始，接收参数列表到arg变量
-	vsprintf(String, format, arg);			//使用vsprintf打印格式化字符串和参数列表到字符数组中
+	vsnprintf(String, sizeof(String), format, arg);
 	va_end(arg);							//结束变量arg
 	OLED_ShowStringArea(RangeX, RangeY, RangeWidth, RangeHeight, X, Y, String, FontSize);//OLED显示字符数组（字符串）
 	
@@ -1000,7 +983,7 @@ void OLED_PrintfMixArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t
 	char String[MAX_STRING_LENGTH];						//定义字符数组
 	va_list arg;							//定义可变参数列表数据类型的变量arg
 	va_start(arg, format);					//从format开始，接收参数列表到arg变量
-	vsprintf(String, format, arg);			//使用vsprintf打印格式化字符串和参数列表到字符数组中
+	vsnprintf(String, sizeof(String), format, arg);
 	va_end(arg);							//结束变量arg
 	OLED_ShowMixStringArea(RangeX,RangeY,RangeWidth,RangeHeight,X, Y, String, ChineseFontSize,ASCIIFontSize);//OLED显示字符数组（字符串）
 }

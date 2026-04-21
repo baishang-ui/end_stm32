@@ -722,6 +722,11 @@ static rt_err_t ali_build_todo_report_payload(char *payload,
         return -RT_EINVAL;
     }
 
+    if (change->item.id[0] == '\0')
+    {
+        return -RT_EINVAL;
+    }
+
     payload[0] = '\0';
     ali_json_escape_copy(id_escaped, sizeof(id_escaped), change->item.id);
     if (ali_u64_to_dec(updated_at_str, sizeof(updated_at_str), change->item.updated_at) == 0U)
@@ -772,6 +777,7 @@ static rt_err_t ali_publish_next_todo_report(void)
 {
     char payload[ALIYUN_IOT_REPORT_BUF_MAX];
     rt_err_t ret = -RT_EEMPTY;
+    rt_uint8_t head_index = 0U;
 
     if (g_ali_report_lock_ready == RT_FALSE)
     {
@@ -783,8 +789,7 @@ static rt_err_t ali_publish_next_todo_report(void)
     {
         rt_strncpy(payload, g_ali_report_queue[g_ali_report_head], sizeof(payload) - 1U);
         payload[sizeof(payload) - 1U] = '\0';
-        g_ali_report_head = (rt_uint8_t)((g_ali_report_head + 1U) % ALIYUN_IOT_REPORT_QUEUE_SIZE);
-        g_ali_report_count--;
+        head_index = g_ali_report_head;
         ret = RT_EOK;
     }
     rt_mutex_release(&g_ali_report_lock);
@@ -797,6 +802,13 @@ static rt_err_t ali_publish_next_todo_report(void)
     ret = esp01s_mqtt_pubraw(ALIYUN_IOT_REPORT_TOPIC, payload, rt_strlen(payload), 0, RT_FALSE);
     if (ret == RT_EOK)
     {
+        rt_mutex_take(&g_ali_report_lock, RT_WAITING_FOREVER);
+        if ((g_ali_report_count > 0U) && (g_ali_report_head == head_index))
+        {
+            g_ali_report_head = (rt_uint8_t)((g_ali_report_head + 1U) % ALIYUN_IOT_REPORT_QUEUE_SIZE);
+            g_ali_report_count--;
+        }
+        rt_mutex_release(&g_ali_report_lock);
         ali_set_state("RPT");
     }
     return ret;
@@ -895,17 +907,16 @@ rt_err_t aliyun_iot_queue_todo_report(const todo_snapshot_change_t *change)
     }
 
     rt_mutex_take(&g_ali_report_lock, RT_WAITING_FOREVER);
-    if (g_ali_report_count >= ALIYUN_IOT_REPORT_QUEUE_SIZE)
-    {
-        g_ali_report_head = (rt_uint8_t)((g_ali_report_head + 1U) % ALIYUN_IOT_REPORT_QUEUE_SIZE);
-        g_ali_report_count--;
-    }
-
-    rt_strncpy(g_ali_report_queue[g_ali_report_tail], payload, ALIYUN_IOT_REPORT_BUF_MAX - 1U);
-    g_ali_report_queue[g_ali_report_tail][ALIYUN_IOT_REPORT_BUF_MAX - 1U] = '\0';
-    g_ali_report_tail = (rt_uint8_t)((g_ali_report_tail + 1U) % ALIYUN_IOT_REPORT_QUEUE_SIZE);
-    g_ali_report_count++;
+    g_ali_report_head = 0U;
+    g_ali_report_tail = 0U;
+    g_ali_report_count = 0U;
+    rt_strncpy(g_ali_report_queue[0], payload, ALIYUN_IOT_REPORT_BUF_MAX - 1U);
+    g_ali_report_queue[0][ALIYUN_IOT_REPORT_BUF_MAX - 1U] = '\0';
+    g_ali_report_tail = 1U % ALIYUN_IOT_REPORT_QUEUE_SIZE;
+    g_ali_report_count = 1U;
     rt_mutex_release(&g_ali_report_lock);
+
+    rt_kprintf("[ALI] todo report queued: %s\r\n", payload);
 
     return RT_EOK;
 }

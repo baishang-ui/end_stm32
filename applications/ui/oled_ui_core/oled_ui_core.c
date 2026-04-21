@@ -21,6 +21,7 @@ bool OLED_UI_ShowFps = false;										//全局布尔型数据，用于控制是
 int16_t OLED_UI_Brightness = 100;									//全局变量，存储当前屏幕亮度
 OLED_UI_WindowSustainCounter OLED_SustainCounter = {0,false};		//用于存储窗口持续时间的结构体
 int tmpi=0;                                                       	//Gif动画缓速播放temp值
+static rt_uint32_t s_fps_last_sample_ms = 0U;
 
 /***********************************************************************************************/
 /***************************这些变量用于存储需要绑定动画的控件的参数*******************************/
@@ -49,12 +50,8 @@ oled_ui_anim_distance_t OLED_UI_LineStep;
  * @return 无
  */
 void oled_ui_update_fps(void){
-	if(OLED_FPS.step<49){
-		OLED_FPS.step++;
-	}else{
-		OLED_FPS.step=0;
-		OLED_FPS.value = OLED_FPS.count;
-		OLED_FPS.count=0;
+	if (s_fps_last_sample_ms == 0U){
+		s_fps_last_sample_ms = HAL_GetTick();
 	}
 }
 
@@ -65,9 +62,23 @@ void oled_ui_update_fps(void){
  * @return 无
  */
 void oled_ui_render_fps(void){
-    OLED_FPS.count ++;
+    rt_uint32_t now_ms = HAL_GetTick();
+    rt_uint32_t elapsed_ms;
+
+    OLED_FPS.count++;
+    if (s_fps_last_sample_ms == 0U){
+        s_fps_last_sample_ms = now_ms;
+    }
+
+    elapsed_ms = now_ms - s_fps_last_sample_ms;
+    if (elapsed_ms >= 500U){
+        OLED_FPS.value = (int16_t)(((rt_uint32_t)OLED_FPS.count * 1000U) / elapsed_ms);
+        OLED_FPS.count = 0;
+        s_fps_last_sample_ms = now_ms;
+    }
+
 	if (OLED_UI_ShowFps){
-		OLED_Printf(110,0,OLED_6X8_HALF,"%3d",OLED_FPS.value);
+		OLED_PrintfMix(92, 0, OLED_12X12_FULL, OLED_6X8_HALF, "帧率%2d", OLED_FPS.value);
 	}
 }
 /**
@@ -618,20 +629,23 @@ void oled_ui_draw_window(void){
 		 * Height：字符串高度
 		 * */
         // 先计算不包含数据宽度的字符串宽度作为默认宽度
-		int16_t MaxLength  = OLED_UI_Window.CurrentArea.Width - 2*CurrentWindow->Text_FontSideDistance - WINDOW_DATA_TEXT_DISTANCE;
+		int16_t MaxLength  = OLED_UI_Window.CurrentArea.Width - 2*CurrentWindow->Text_FontSideDistance;
 		int16_t DataLength = 0;
+		bool ShowProgressBar = false;
 		//计算数据类型
 		int8_t DataStyle = oled_ui_get_window_data_style(CurrentWindow->Prob_Data_Int,CurrentWindow->Prob_Data_Float);
 		//如果进度条数据不为空，则说明用户设置了进度条，则显示进度条
 		//如果数据指针不为空
 		if(DataStyle != WINDOW_DATA_STYLE_NONE ){
+			ShowProgressBar = (CurrentWindow->Prob_ShowBar != false);
 			//如果数据类型为int16_t
 			if (DataStyle == WINDOW_DATA_STYLE_INT)
 			{
+                const char *IntFormat = (CurrentWindow->Prob_MinData < 0.0f) ? "%+d" : "%3d";
 				//计算字符串被限制的最大宽度
-				MaxLength = OLED_UI_Window.CurrentArea.Width - 2*CurrentWindow->Text_FontSideDistance - oled_ui_calc_string_width(ChineseFont,ASCIIFont,"%3d",*CurrentWindow->Prob_Data_Int)- WINDOW_DATA_TEXT_DISTANCE;
+				MaxLength = OLED_UI_Window.CurrentArea.Width - 2*CurrentWindow->Text_FontSideDistance - oled_ui_calc_string_width(ChineseFont,ASCIIFont,IntFormat,*CurrentWindow->Prob_Data_Int)- WINDOW_DATA_TEXT_DISTANCE;
 				//计算数据所占的宽度
-				DataLength = oled_ui_calc_string_width(ChineseFont,ASCIIFont,"%3d",*CurrentWindow->Prob_Data_Int);
+				DataLength = oled_ui_calc_string_width(ChineseFont,ASCIIFont,IntFormat,*CurrentWindow->Prob_Data_Int);
 				//显示数据
 				OLED_PrintfMixArea(
 					//区域限制
@@ -642,14 +656,15 @@ void oled_ui_draw_window(void){
 					OLED_UI_Window.CurrentArea.X + CurrentWindow->General_Width - 1 - CurrentWindow->Text_FontSideDistance - DataLength,
 					OLED_UI_Window.CurrentArea.Y + CurrentWindow->Text_FontTopDistance,
 					ChineseFont,ASCIIFont,
-					"%3d",*CurrentWindow->Prob_Data_Int);
+					IntFormat,*CurrentWindow->Prob_Data_Int);
 
 			}else{//否则默认认为是浮点型数据
+                const char *FloatFormat = (CurrentWindow->Prob_MinData < 0.0f) ? "%+.2f" : "%.2f";
 			
 				//计算字符串被限制的最大宽度
-				MaxLength = OLED_UI_Window.CurrentArea.Width - 2*CurrentWindow->Text_FontSideDistance - oled_ui_calc_string_width(ChineseFont,	ASCIIFont,	"%5.2f",*CurrentWindow->Prob_Data_Float) - WINDOW_DATA_TEXT_DISTANCE;
+				MaxLength = OLED_UI_Window.CurrentArea.Width - 2*CurrentWindow->Text_FontSideDistance - oled_ui_calc_string_width(ChineseFont,ASCIIFont,FloatFormat,*CurrentWindow->Prob_Data_Float) - WINDOW_DATA_TEXT_DISTANCE;
 				//计算数据所占的宽度
-				DataLength = oled_ui_calc_string_width(ChineseFont,ASCIIFont,"%5.2f",*CurrentWindow->Prob_Data_Float);
+				DataLength = oled_ui_calc_string_width(ChineseFont,ASCIIFont,FloatFormat,*CurrentWindow->Prob_Data_Float);
 				//显示数据
 				OLED_PrintfMixArea(
 					//区域限制
@@ -660,18 +675,19 @@ void oled_ui_draw_window(void){
 					OLED_UI_Window.CurrentArea.X + CurrentWindow->General_Width - 1 - CurrentWindow->Text_FontSideDistance - DataLength,
 					OLED_UI_Window.CurrentArea.Y + CurrentWindow->Text_FontTopDistance,
 					ChineseFont,ASCIIFont,
-					"%5.2f",*CurrentWindow->Prob_Data_Float);
+					FloatFormat,*CurrentWindow->Prob_Data_Float);
 			}
 			
-
-			//显示进度条（外框）
-			OLED_DrawRoundedRectangle(OLED_UI_Window.CurrentArea.X +CurrentWindow->Prob_SideDistance,
-			OLED_UI_Window.CurrentArea.Y + OLED_UI_Window.CurrentArea.Height  - CurrentWindow->Prob_LineHeight - CurrentWindow->Prob_BottomDistance,
-			OLED_UI_Window.CurrentArea.Width- 2*CurrentWindow->Prob_SideDistance,CurrentWindow->Prob_LineHeight,2,OLED_UNFILLED);
-			//显示进度条（内部）
-			OLED_DrawRectangle(OLED_UI_Window.CurrentArea.X +CurrentWindow->Prob_SideDistance + 2,
-							OLED_UI_Window.CurrentArea.Y + OLED_UI_Window.CurrentArea.Height  - CurrentWindow->Prob_LineHeight - CurrentWindow->Prob_BottomDistance + 2,
-							OLED_UI_ProbWidth.CurrentDistance>=OLED_UI_Window.CurrentArea.Width- 2*CurrentWindow->Prob_SideDistance - 4  ?OLED_UI_Window.CurrentArea.Width- 2*CurrentWindow->Prob_SideDistance - 4: OLED_UI_ProbWidth.CurrentDistance  ,CurrentWindow->Prob_LineHeight-4,OLED_FILLED);
+			if (ShowProgressBar){
+				//显示进度条（外框）
+				OLED_DrawRoundedRectangle(OLED_UI_Window.CurrentArea.X +CurrentWindow->Prob_SideDistance,
+				OLED_UI_Window.CurrentArea.Y + OLED_UI_Window.CurrentArea.Height  - CurrentWindow->Prob_LineHeight - CurrentWindow->Prob_BottomDistance,
+				OLED_UI_Window.CurrentArea.Width- 2*CurrentWindow->Prob_SideDistance,CurrentWindow->Prob_LineHeight,2,OLED_UNFILLED);
+				//显示进度条（内部）
+				OLED_DrawRectangle(OLED_UI_Window.CurrentArea.X +CurrentWindow->Prob_SideDistance + 2,
+								OLED_UI_Window.CurrentArea.Y + OLED_UI_Window.CurrentArea.Height  - CurrentWindow->Prob_LineHeight - CurrentWindow->Prob_BottomDistance + 2,
+								OLED_UI_ProbWidth.CurrentDistance>=OLED_UI_Window.CurrentArea.Width- 2*CurrentWindow->Prob_SideDistance - 4  ?OLED_UI_Window.CurrentArea.Width- 2*CurrentWindow->Prob_SideDistance - 4: OLED_UI_ProbWidth.CurrentDistance  ,CurrentWindow->Prob_LineHeight-4,OLED_FILLED);
+			}
 		}
 		if(CurrentWindow->Text_String != NULL){
 			int16_t WindowTextStringLength = oled_ui_calc_string_width(ChineseFont,ASCIIFont,CurrentWindow->Text_String);
@@ -782,21 +798,23 @@ void oled_ui_set_target_cursor(void){
 		}
 		////单选框宽度
 		int8_t RadioCompensationWidth = 0;
+		OLED_Font CurrentChineseFont = oled_ui_get_font(CurrentMenuPage->General_FontSize,CHINESE);
+		OLED_Font CurrentASCIIFont = oled_ui_get_font(CurrentMenuPage->General_FontSize,ASCII);
 		//如果需要绘制单选框(即BoolRadioBox不为空)
 		if(CurrentMenuPage->General_MenuItems[CurrentMenuPage->_ActiveMenuID].List_BoolRadioBox != NULL){
-				RadioCompensationWidth = (oled_ui_get_font(CurrentMenuPage->General_FontSize,CHINESE) + 2);
+				RadioCompensationWidth = (CurrentChineseFont + 2);
 		}
 		else if(CurrentMenuPage->General_MenuItems[CurrentMenuPage->_ActiveMenuID].List_IntBox != NULL){
-				char IntBoxValue[5]; // 用于存储IntBox的值转换后的字符串
+				char IntBoxValue[8]; // 用于存储IntBox的值转换后的字符串
 				// 将IntBox的值转换为字符串
-				sprintf(IntBoxValue, "%d", *CurrentMenuPage->General_MenuItems[CurrentMenuPage->_ActiveMenuID].List_IntBox);
-				RadioCompensationWidth = (oled_ui_get_font(CurrentMenuPage->General_FontSize,CHINESE) + (strlen(IntBoxValue) * 4));
+				rt_snprintf(IntBoxValue, sizeof(IntBoxValue), "%d", *CurrentMenuPage->General_MenuItems[CurrentMenuPage->_ActiveMenuID].List_IntBox);
+				RadioCompensationWidth = (CurrentChineseFont + oled_ui_calc_string_width(CurrentChineseFont, CurrentASCIIFont, IntBoxValue));
 		}
 		else if(CurrentMenuPage->General_MenuItems[CurrentMenuPage->_ActiveMenuID].List_FloatBox != NULL){
-				char FloatBoxValue[6]; // 用于存储IntBox的值转换后的字符串
+				char FloatBoxValue[12]; // 用于存储FloatBox的值转换后的字符串
 				// 将IntBox的值转换为字符串
-				sprintf(FloatBoxValue, "%.2f", *CurrentMenuPage->General_MenuItems[CurrentMenuPage->_ActiveMenuID].List_FloatBox);
-				RadioCompensationWidth = (oled_ui_get_font(CurrentMenuPage->General_FontSize,CHINESE) + (strlen(FloatBoxValue) * 4));
+				rt_snprintf(FloatBoxValue, sizeof(FloatBoxValue), "%.2f", *CurrentMenuPage->General_MenuItems[CurrentMenuPage->_ActiveMenuID].List_FloatBox);
+				RadioCompensationWidth = (CurrentChineseFont + oled_ui_calc_string_width(CurrentChineseFont, CurrentASCIIFont, FloatBoxValue));
 		}
 		else{
 			RadioCompensationWidth = 0;
@@ -861,6 +879,10 @@ void oled_ui_set_target_scrollbar_height(void){
  * @return 无
  */
 void oled_ui_set_target_progress_width(void){
+	if(CurrentWindow == NULL || CurrentWindow->Prob_ShowBar == false){
+		OLED_UI_ProbWidth.TargetDistance = 0;
+		return;
+	}
 	
 	//确认数据类型
 	int8_t DataStyle = oled_ui_get_window_data_style(CurrentWindow->Prob_Data_Int,CurrentWindow->Prob_Data_Float);
@@ -1007,11 +1029,11 @@ void oled_ui_draw_menu_elements(void){
 			}	
 			// 如果需要显示IntBox的值(即IntBox不为空)
 			else if(page->General_MenuItems[i].List_IntBox != NULL){
-				char IntBoxValue[5]; // 用于存储IntBox的值转换后的字符串
+				char IntBoxValue[16];
 				// 将IntBox的值转换为字符串
-				sprintf(IntBoxValue, "%d", *page->General_MenuItems[i].List_IntBox);
+				rt_snprintf(IntBoxValue, sizeof(IntBoxValue), "%d", *page->General_MenuItems[i].List_IntBox);
 				
-				RadioCompensationWidth = (ChineseFont + (strlen(IntBoxValue) * 4));
+				RadioCompensationWidth = (ChineseFont + oled_ui_calc_string_width(ChineseFont, ASCIIFont, "%s", IntBoxValue));
 							
 					// 在限制的区域内打印IntBox的值
 				OLED_PrintfMixArea(
@@ -1027,12 +1049,12 @@ void oled_ui_draw_menu_elements(void){
 			}
 			// 如果需要显示FloatBox的值(即FloatBox不为空)
 			else if (page->General_MenuItems[i].List_FloatBox != NULL) {
-					char FloatBoxValue[5]; // 用于存储FloatBox的值转换后的字符串
+					char FloatBoxValue[16];
 					// 将FloatBox的值转换为字符串，保留两位小数
-					sprintf(FloatBoxValue, "%.2f", *page->General_MenuItems[i].List_FloatBox);
+					rt_snprintf(FloatBoxValue, sizeof(FloatBoxValue), "%.2f", *page->General_MenuItems[i].List_FloatBox);
 
 					// 计算补偿宽度
-					RadioCompensationWidth = (ChineseFont + (strlen(FloatBoxValue) * 4));
+					RadioCompensationWidth = (ChineseFont + oled_ui_calc_string_width(ChineseFont, ASCIIFont, "%s", FloatBoxValue));
 
 					// 在限制的区域内打印FloatBox的值
 					OLED_PrintfMixArea(

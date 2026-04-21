@@ -11,6 +11,47 @@ static todo_snapshot_t g_snapshot;
 static struct rt_mutex g_snapshot_lock;
 static rt_bool_t g_snapshot_ready = RT_FALSE;
 
+static rt_uint64_t todo_ticks_to_ms(rt_tick_t ticks)
+{
+    return ((rt_uint64_t)ticks * 1000ULL) / (rt_uint64_t)RT_TICK_PER_SECOND;
+}
+
+static rt_uint64_t todo_resolve_change_timestamp(const todo_item_t *item, rt_tick_t now_tick)
+{
+    rt_uint64_t candidate = 0ULL;
+    rt_tick_t elapsed_ticks = 0U;
+
+    if (g_snapshot.last_update_tick != 0U)
+    {
+        elapsed_ticks = now_tick - g_snapshot.last_update_tick;
+    }
+
+    if (g_snapshot.timestamp != 0ULL)
+    {
+        candidate = g_snapshot.timestamp + todo_ticks_to_ms(elapsed_ticks);
+    }
+    else if ((item != RT_NULL) && (item->updated_at != 0ULL))
+    {
+        candidate = item->updated_at + todo_ticks_to_ms(elapsed_ticks);
+    }
+    else
+    {
+        candidate = todo_ticks_to_ms(now_tick);
+    }
+
+    if ((item != RT_NULL) && (candidate <= item->updated_at))
+    {
+        candidate = item->updated_at + 1ULL;
+    }
+
+    if (candidate == 0ULL)
+    {
+        candidate = 1ULL;
+    }
+
+    return candidate;
+}
+
 static const char *todo_skip_ws(const char *p)
 {
     while ((p != RT_NULL) &&
@@ -601,6 +642,7 @@ rt_err_t todo_snapshot_toggle_completed(rt_uint32_t index, todo_snapshot_change_
 {
     todo_item_t *item;
     rt_tick_t now_tick;
+    rt_uint64_t change_timestamp;
 
     if (!g_snapshot_ready)
     {
@@ -628,17 +670,11 @@ rt_err_t todo_snapshot_toggle_completed(rt_uint32_t index, todo_snapshot_change_
     }
 
     now_tick = rt_tick_get();
-    if (item->updated_at == 0U)
-    {
-        item->updated_at = (rt_uint64_t)now_tick;
-    }
-    else
-    {
-        item->updated_at += 1U;
-    }
+    change_timestamp = todo_resolve_change_timestamp(item, now_tick);
+    item->updated_at = change_timestamp;
 
     g_snapshot.version += 1U;
-    g_snapshot.timestamp = item->updated_at;
+    g_snapshot.timestamp = change_timestamp;
     g_snapshot.last_update_tick = now_tick;
 
     if (change != RT_NULL)
