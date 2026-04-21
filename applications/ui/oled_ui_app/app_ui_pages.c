@@ -654,7 +654,7 @@ static void app_ui_refresh_status_items(void)
         rt_snprintf(s_status_lines[1], sizeof(s_status_lines[1]), "湿度数据: %d.%d%%", humi_int, humi_frac);
         rt_snprintf(s_status_lines[3],
                     sizeof(s_status_lines[3]),
-                    "数据延迟: %lums 错误:%d",
+                    "数据: %lums 错误:%d",
                     (unsigned long)age_ms,
                     sensor_status.last_read_error);
     }
@@ -666,7 +666,7 @@ static void app_ui_refresh_status_items(void)
         s_status_lines[1][sizeof(s_status_lines[1]) - 1U] = '\0';
         rt_snprintf(s_status_lines[3],
                     sizeof(s_status_lines[3]),
-                    "数据延迟: 等待 错误:%d",
+                    "数据: 等待 错误:%d",
                     sensor_status.last_read_error);
     }
 
@@ -859,7 +859,7 @@ MenuItem StatusMenuItems[5] = {
     { .General_item_text = "温度数据: --.-C" },
     { .General_item_text = "湿度数据: --.-%" },
     { .General_item_text = "云端连接: 未连接" },
-    { .General_item_text = "数据延迟: 等待 错误:0" },
+    { .General_item_text = "数据: 等待 错误:0" },
     { .General_item_text = RT_NULL },
 };
 
