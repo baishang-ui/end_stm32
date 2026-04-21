@@ -11,7 +11,7 @@
 
 #define DEVICE_NET_QUEUE_DEPTH              8U
 #define DEVICE_USB_LEVEL_STEP               2
-#define DEVICE_USB_PENDING_LIMIT            120
+#define DEVICE_USB_PENDING_MAX              32767
 #define DEVICE_USB_IDLE_DELAY_MS            5
 #define DEVICE_USB_SHORTCUT_QUEUE_LIMIT     4U
 #define DEVICE_USB_BUTTON_DEBOUNCE_MS       18U
@@ -140,9 +140,9 @@ static rt_bool_t s_usb_shortcut_buttons_inited = RT_FALSE;
 static device_usb_release_t s_usb_release_pending = DEVICE_USB_RELEASE_NONE;
 static rt_tick_t s_usb_last_report_tick = 0U;
 
-static rt_int16_t device_abs_i16(rt_int16_t value)
+static rt_uint16_t device_abs_i16(rt_int16_t value)
 {
-    return (value < 0) ? (rt_int16_t)(-value) : value;
+    return (value < 0) ? (rt_uint16_t)(-((rt_int32_t)value)) : (rt_uint16_t)value;
 }
 
 static void device_usb_accumulate_steps(rt_int16_t *pending, rt_int32_t steps)
@@ -155,13 +155,13 @@ static void device_usb_accumulate_steps(rt_int16_t *pending, rt_int32_t steps)
     }
 
     total = (rt_int32_t)(*pending) + steps;
-    if (total > DEVICE_USB_PENDING_LIMIT)
+    if (total > DEVICE_USB_PENDING_MAX)
     {
-        total = DEVICE_USB_PENDING_LIMIT;
+        total = DEVICE_USB_PENDING_MAX;
     }
-    else if (total < -DEVICE_USB_PENDING_LIMIT)
+    else if (total < -DEVICE_USB_PENDING_MAX)
     {
-        total = -DEVICE_USB_PENDING_LIMIT;
+        total = -DEVICE_USB_PENDING_MAX;
     }
 
     *pending = (rt_int16_t)total;
@@ -422,21 +422,25 @@ static void device_usb_update_status(rt_bool_t stack_started,
                                      rt_bool_t can_send,
                                      rt_err_t last_error)
 {
-    rt_uint16_t queued_steps;
+    rt_uint32_t queued_steps;
     rt_uint16_t queued_shortcuts;
 
     rt_mutex_take(&s_usb_lock, RT_WAITING_FOREVER);
     queued_shortcuts = device_usb_count_shortcuts_locked();
-    queued_steps = (rt_uint16_t)(device_abs_i16(s_usb_pending_volume) +
-                                 device_abs_i16(s_usb_pending_brightness) +
-                                 queued_shortcuts +
-                                 ((s_usb_release_pending != DEVICE_USB_RELEASE_NONE) ? 1U : 0U));
+    queued_steps = (rt_uint32_t)device_abs_i16(s_usb_pending_volume) +
+                   (rt_uint32_t)device_abs_i16(s_usb_pending_brightness) +
+                   (rt_uint32_t)queued_shortcuts +
+                   ((s_usb_release_pending != DEVICE_USB_RELEASE_NONE) ? 1U : 0U);
+    if (queued_steps > 65535U)
+    {
+        queued_steps = 65535U;
+    }
     s_usb_status.started = RT_TRUE;
     s_usb_status.stack_started = stack_started;
     s_usb_status.ready = ready;
     s_usb_status.can_send = can_send;
     s_usb_status.last_error = last_error;
-    s_usb_status.queued_steps = queued_steps;
+    s_usb_status.queued_steps = (rt_uint16_t)queued_steps;
     rt_mutex_release(&s_usb_lock);
 }
 

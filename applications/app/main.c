@@ -36,6 +36,21 @@
 #define BOOT_UI_READY_TIMEOUT_MS      2000U
 #define BOOT_WAIT_POLL_MS             20U
 
+static const char * const g_boot_step_labels[BOOT_STEP_TOTAL] =
+{
+    "屏幕就绪",
+    "上电稳定",
+    "待办快照",
+    "传感器初始化",
+    "传感服务",
+    "网络服务",
+    "网络模块就绪",
+    "云端服务",
+    "云线程启动",
+    "设备服务",
+    "USB栈预热",
+};
+
 static rt_err_t app_boot_delay(rt_uint32_t delay_ms)
 {
     if (delay_ms > 0U)
@@ -114,32 +129,44 @@ int main(void)
     rt_pin_mode(GPIO_LED, PIN_MODE_OUTPUT);
 
     oled_ui_boot_init();
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "屏幕就绪", RT_EOK);
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "上电稳定", app_boot_delay(BOOT_POWER_STABLE_MS));
+    oled_ui_boot_set_plan(BOOT_STEP_TOTAL, g_boot_step_labels);
+    oled_ui_boot_step(step, BOOT_STEP_TOTAL, g_boot_step_labels[step], RT_EOK);
+    step++;
+    oled_ui_boot_step(step, BOOT_STEP_TOTAL, g_boot_step_labels[step], app_boot_delay(BOOT_POWER_STABLE_MS));
+    step++;
 
     todo_snapshot_init();
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "待办快照", RT_EOK);
+    oled_ui_boot_step(step, BOOT_STEP_TOTAL, g_boot_step_labels[step], RT_EOK);
+    step++;
 
     ret = dht11_init();
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "传感器初始化", ret);
+    oled_ui_boot_step(step, BOOT_STEP_TOTAL, g_boot_step_labels[step], ret);
+    step++;
 
     ret = sensor_service_start();
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "传感服务", ret);
+    oled_ui_boot_step(step, BOOT_STEP_TOTAL, g_boot_step_labels[step], ret);
+    step++;
 
     ret = esp01s_start_connect();
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "网络服务", ret);
+    oled_ui_boot_step(step, BOOT_STEP_TOTAL, g_boot_step_labels[step], ret);
+    step++;
     ret = (ret == RT_EOK) ? app_wait_for_esp_ready(BOOT_ESP_READY_TIMEOUT_MS) : ret;
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "网络模块就绪", ret);
+    oled_ui_boot_step(step, BOOT_STEP_TOTAL, g_boot_step_labels[step], ret);
+    step++;
 
     ret = aliyun_iot_start();
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "云端服务", ret);
+    oled_ui_boot_step(step, BOOT_STEP_TOTAL, g_boot_step_labels[step], ret);
+    step++;
     ret = (ret == RT_EOK) ? app_wait_for_cloud_started(BOOT_CLOUD_READY_TIMEOUT_MS) : ret;
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "云线程启动", ret);
+    oled_ui_boot_step(step, BOOT_STEP_TOTAL, g_boot_step_labels[step], ret);
+    step++;
 
     ret = device_service_start();
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "设备服务", ret);
+    oled_ui_boot_step(step, BOOT_STEP_TOTAL, g_boot_step_labels[step], ret);
+    step++;
     ret = (ret == RT_EOK) ? app_warm_up_usb_stack(BOOT_USB_STABLE_MS) : ret;
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "USB栈预热", ret);
+    oled_ui_boot_step(step, BOOT_STEP_TOTAL, g_boot_step_labels[step], ret);
+    step++;
 
     oled_ui_boot_complete();
     ret = oled_ui_core_start();

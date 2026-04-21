@@ -21,7 +21,8 @@
 #define APP_UI_USB_STATUS_LEN        32
 #define APP_UI_PC_DELTA_STEP         2
 #define APP_UI_PC_REPORT_UNIT        2
-#define APP_UI_PC_DELTA_LIMIT        24
+#define APP_UI_PC_DELTA_MIN          (-32767)
+#define APP_UI_PC_DELTA_MAX          32767
 
 #define APP_UI_TXT_TODO              "待办"
 #define APP_UI_TXT_NETWORK           "网络"
@@ -354,8 +355,8 @@ static void app_ui_open_pc_volume_window(void)
         .Text_FontTopDistance = 3,
         .Prob_Data_Int = &s_pc_volume_delta,
         .Prob_DataStep = APP_UI_PC_DELTA_STEP,
-        .Prob_MinData = -APP_UI_PC_DELTA_LIMIT,
-        .Prob_MaxData = APP_UI_PC_DELTA_LIMIT,
+        .Prob_MinData = APP_UI_PC_DELTA_MIN,
+        .Prob_MaxData = APP_UI_PC_DELTA_MAX,
         .Prob_BottomDistance = 3,
         .Prob_SideDistance = 4,
         .Prob_LineHeight = 8,
@@ -380,8 +381,8 @@ static void app_ui_open_pc_brightness_window(void)
         .Text_FontTopDistance = 3,
         .Prob_Data_Int = &s_pc_brightness_delta,
         .Prob_DataStep = APP_UI_PC_DELTA_STEP,
-        .Prob_MinData = -APP_UI_PC_DELTA_LIMIT,
-        .Prob_MaxData = APP_UI_PC_DELTA_LIMIT,
+        .Prob_MinData = APP_UI_PC_DELTA_MIN,
+        .Prob_MaxData = APP_UI_PC_DELTA_MAX,
         .Prob_BottomDistance = 3,
         .Prob_SideDistance = 4,
         .Prob_LineHeight = 8,
