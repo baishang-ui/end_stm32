@@ -12,7 +12,6 @@ extern "C" {
 extern float AppUI_PageMotionSpeed;
 extern float AppUI_TextScrollSpeed;
 extern rt_int16_t AppUI_FadeStepMs;
-extern rt_int16_t AppUI_FontSize;
 extern rt_bool_t AppUI_UseSmoothCurve;
 
 uint8_t app_ui_get_move_style(void);

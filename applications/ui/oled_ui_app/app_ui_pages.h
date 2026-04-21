@@ -10,7 +10,6 @@ extern "C" {
 extern MenuItem MainMenuItems[];
 extern MenuItem TodoMenuItems[];
 extern MenuItem WiFiMenuItems[];
-extern MenuItem WiFiInfoMenuItems[];
 extern MenuItem WiFiScanMenuItems[];
 extern MenuItem PCControlMenuItems[];
 extern MenuItem PCShortcutMenuItems[];
@@ -21,7 +20,6 @@ extern MenuItem SettingsMenuItems[];
 extern MenuPage MainMenuPage;
 extern MenuPage TodoMenuPage;
 extern MenuPage WiFiMenuPage;
-extern MenuPage WiFiInfoMenuPage;
 extern MenuPage WiFiScanMenuPage;
 extern MenuPage PCControlMenuPage;
 extern MenuPage PCShortcutMenuPage;
