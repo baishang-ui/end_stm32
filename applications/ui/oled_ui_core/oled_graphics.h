@@ -51,20 +51,20 @@ void OLED_ShowHexNum(int16_t X, int16_t Y, uint32_t Number, uint8_t Length, uint
 void OLED_ShowBinNum(int16_t X, int16_t Y, uint32_t Number, uint8_t Length, uint8_t FontSize);
 void OLED_ShowFloatNum(int16_t X, int16_t Y, double Number, uint8_t IntLength, uint8_t FraLength, uint8_t FontSize);
 //显示中英文字符串
-void OLED_ShowString(int16_t X, int16_t Y, char *String, uint8_t FontSize);
-void OLED_ShowMixString(int16_t X, int16_t Y, char *String, uint8_t ChineseFontSize, uint8_t ASCIIFontSize);
-void OLED_ShowChinese(int16_t X, int16_t Y, char *Chinese, uint8_t FontSize);
-void OLED_Printf(int16_t X, int16_t Y, uint8_t FontSize, char *format, ...);
+void OLED_ShowString(int16_t X, int16_t Y, const char *String, uint8_t FontSize);
+void OLED_ShowMixString(int16_t X, int16_t Y, const char *String, uint8_t ChineseFontSize, uint8_t ASCIIFontSize);
+void OLED_ShowChinese(int16_t X, int16_t Y, const char *Chinese, uint8_t FontSize);
+void OLED_Printf(int16_t X, int16_t Y, uint8_t FontSize, const char *format, ...);
 void OLED_PrintfMix(int16_t X, int16_t Y, uint8_t ChineseFontSize,uint8_t ASCIIFontSize,const char *format, ...);
 
 //Area系列显示函数，可以想象为将屏幕使用蒙版遮挡，并在上面挖出一个X2，Y2，AreaWidth，AreaHeight的透明区域，图片仅仅会在这个区域内显示
 void OLED_ShowImageArea(int16_t X_Pic, int16_t Y_Pic, int16_t PictureWidth, int16_t PictureHeight, int16_t X_Area, int16_t Y_Area, int16_t AreaWidth, int16_t AreaHeight, const uint8_t *Image);
 void OLED_ShowCharArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight, int16_t X, int16_t Y, char Char, uint8_t FontSize);
-void OLED_ShowStringArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight, int16_t X, int16_t Y, char *String, uint8_t FontSize);
-void OLED_ShowChineseArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight, int16_t X, int16_t Y, char *Chinese, uint8_t FontSize);
-void OLED_PrintfArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight, int16_t X, int16_t Y,uint8_t FontSize, char *format, ...);
-void OLED_ShowMixStringArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight,int16_t X, int16_t Y, char *String, uint8_t ChineseFontSize,uint8_t ASCIIFontSize);
-void OLED_PrintfMixArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight,int16_t X, int16_t Y, uint8_t ChineseFontSize,uint8_t ASCIIFontSize, char *format, ...);
+void OLED_ShowStringArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight, int16_t X, int16_t Y, const char *String, uint8_t FontSize);
+void OLED_ShowChineseArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight, int16_t X, int16_t Y, const char *Chinese, uint8_t FontSize);
+void OLED_PrintfArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight, int16_t X, int16_t Y,uint8_t FontSize, const char *format, ...);
+void OLED_ShowMixStringArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight,int16_t X, int16_t Y, const char *String, uint8_t ChineseFontSize,uint8_t ASCIIFontSize);
+void OLED_PrintfMixArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight,int16_t X, int16_t Y, uint8_t ChineseFontSize,uint8_t ASCIIFontSize, const char *format, ...);
 
 //绘制函数，绘制基础的ui
 void OLED_DrawPoint(int16_t X, int16_t Y);

@@ -13,7 +13,7 @@ extern uint8_t OLED_DisplayBuf[OLED_HEIGHT/8][OLED_WIDTH];
 
 static const uint8_t *OLED_FindChineseBitmap12(const char *index)
 {
-    uint8_t font_index;
+    uint16_t font_index;
 
     for (font_index = 0; strcmp(OLED_CF12x12[font_index].Index, "") != 0; font_index++)
     {
@@ -28,7 +28,7 @@ static const uint8_t *OLED_FindChineseBitmap12(const char *index)
 
 static const uint8_t *OLED_FindChineseBitmap16(const char *index)
 {
-    uint8_t font_index;
+    uint16_t font_index;
 
     for (font_index = 0; strcmp(OLED_CF16x16[font_index].Index, "") != 0; font_index++)
     {
@@ -548,8 +548,9 @@ void OLED_ShowFloatNum(int16_t X, int16_t Y, double Number, uint8_t IntLength, u
   * 返 回 值：无
   * 说    明：调用此函数后，要想真正地呈现在屏幕上，还需调用更新函数
   */
-void OLED_ShowString(int16_t X, int16_t Y, char *String, uint8_t FontSize)
+void OLED_ShowString(int16_t X, int16_t Y, const char *String, uint8_t FontSize)
 {
+	if (String == NULL) {return;}
 	uint8_t i;
 	for (i = 0; String[i] != '\0'; i++)		//遍历字符串的每个字符
 	{
@@ -570,10 +571,11 @@ void OLED_ShowString(int16_t X, int16_t Y, char *String, uint8_t FontSize)
   * 返 回 值：无
   * 说    明：调用此函数后，要想真正地呈现在屏幕上，还需调用更新函数
   */
-void OLED_ShowChinese(int16_t X, int16_t Y, char *Chinese, uint8_t FontSize)
+void OLED_ShowChinese(int16_t X, int16_t Y, const char *Chinese, uint8_t FontSize)
 {
+    if (Chinese == NULL) {return;}
     uint8_t pChinese = 0;
-    uint8_t pIndex;
+    uint16_t pIndex;
     uint8_t i;
     char SingleChinese[OLED_CHN_CHAR_WIDTH + 1] = {0};
     
@@ -652,9 +654,10 @@ void OLED_ShowChinese(int16_t X, int16_t Y, char *Chinese, uint8_t FontSize)
   * 返 回 值：无
   * 说    明：调用此函数后，要想真正地呈现在屏幕上，还需调用更新函数
   */
-void OLED_Printf(int16_t X, int16_t Y, uint8_t FontSize, char *format, ...)
+void OLED_Printf(int16_t X, int16_t Y, uint8_t FontSize, const char *format, ...)
 {
 	char String[MAX_STRING_LENGTH];						//定义字符数组
+	if (format == NULL) {return;}
 	va_list arg;							//定义可变参数列表数据类型的变量arg
 	va_start(arg, format);					//从format开始，接收参数列表到arg变量
 	vsnprintf(String, sizeof(String), format, arg);
@@ -673,8 +676,9 @@ void OLED_Printf(int16_t X, int16_t Y, uint8_t FontSize, char *format, ...)
   * @param ASCIIFontSize  指定ASCII文字大小,OLED_6X8_HALF,OLED_7X12_HALF,OLED_8X16_HALF,OLED_10X20_HALF
   * @return 无
   */
-void OLED_ShowMixString(int16_t X, int16_t Y, char *String, uint8_t ChineseFontSize, uint8_t ASCIIFontSize) 
+void OLED_ShowMixString(int16_t X, int16_t Y, const char *String, uint8_t ChineseFontSize, uint8_t ASCIIFontSize) 
 {
+    if (String == NULL) {return;}
     while (*String != '\0') {
         if (*String & 0x80) { // 判断是否是中文字符 (最高位为1表示中文字符)
 			char Chinese[OLED_CHN_CHAR_WIDTH+1];
@@ -709,6 +713,7 @@ void OLED_ShowMixString(int16_t X, int16_t Y, char *String, uint8_t ChineseFontS
 void OLED_PrintfMix(int16_t X, int16_t Y, uint8_t ChineseFontSize,uint8_t ASCIIFontSize,const char *format, ...)
 {
 	char String[MAX_STRING_LENGTH];						//定义字符数组
+	if (format == NULL) {return;}
 	va_list arg;							//定义可变参数列表数据类型的变量arg
 	va_start(arg, format);					//从format开始，接收参数列表到arg变量
 	vsnprintf(String, sizeof(String), format, arg);
@@ -806,8 +811,9 @@ void OLED_ShowCharArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t 
   * @param FontSize 指定字体大小,OLED_6X8_HALF,OLED_7X12_HALF,OLED_8X16_HALF,OLED_10X20_HALF
   * @retval 无
   */
-void OLED_ShowStringArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight, int16_t X, int16_t Y, char *String, uint8_t FontSize)
+void OLED_ShowStringArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight, int16_t X, int16_t Y, const char *String, uint8_t FontSize)
 {
+	if (String == NULL) {return;}
 	/*由于有可能显示极长的字符串，所以uint16_t*/
 	uint16_t i;
 	for (i = 0; String[i] != '\0'; i++)		//遍历字符串的每个字符
@@ -831,11 +837,12 @@ void OLED_ShowStringArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_
   * @param FontSize 指定中文文字大小，，OLED_8X8_FULL,OLED_12X12_FULL,OLED_16X16_FULL,OLED_20X20_FULL
   * @retval 无
   */
-void OLED_ShowChineseArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight, int16_t X, int16_t Y, char *Chinese, uint8_t FontSize)
+void OLED_ShowChineseArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight, int16_t X, int16_t Y, const char *Chinese, uint8_t FontSize)
 {
-    uint8_t pChinese = 0;
-    uint8_t pIndex;
-    uint8_t i;
+	if (Chinese == NULL) {return;}
+	uint8_t pChinese = 0;
+	uint16_t pIndex;
+	uint8_t i;
     char SingleChinese[OLED_CHN_CHAR_WIDTH + 1] = {0};
     for (i = 0; Chinese[i] != '\0'; i ++)    // 遍历汉字串
     {
@@ -916,10 +923,11 @@ void OLED_ShowChineseArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16
   *                 OLED_6X8		宽6像素，高8像素
   * @retval 无
   */
-void OLED_PrintfArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight, int16_t X, int16_t Y,uint8_t FontSize, char *format, ...)
+void OLED_PrintfArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight, int16_t X, int16_t Y,uint8_t FontSize, const char *format, ...)
 {
 	//由于有可能显示极长的字符串，所以128
 	char String[MAX_STRING_LENGTH];						//定义字符数组
+	if (format == NULL) {return;}
 	va_list arg;							//定义可变参数列表数据类型的变量arg
 	va_start(arg, format);					//从format开始，接收参数列表到arg变量
 	vsnprintf(String, sizeof(String), format, arg);
@@ -943,8 +951,9 @@ void OLED_PrintfArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t Ra
   * @param ASCIIFontSize  指定ASCII文字大小,OLED_6X8或OLED_7X12或OLED_8X16
   * @retval 无
   */
-void OLED_ShowMixStringArea(int16_t RangeX, int16_t RangeY, int16_t RangeWidth, int16_t RangeHeight, int16_t X, int16_t Y, char *String, uint8_t ChineseFontSize, uint8_t ASCIIFontSize)
+void OLED_ShowMixStringArea(int16_t RangeX, int16_t RangeY, int16_t RangeWidth, int16_t RangeHeight, int16_t X, int16_t Y, const char *String, uint8_t ChineseFontSize, uint8_t ASCIIFontSize)
 {
+  	if (String == NULL) {return;}
   	while (*String != '\0') {
 		  if (*String & 0x80) { // 判断中文字符（最高位为1）
 			char Chinese[OLED_CHN_CHAR_WIDTH + 1]; // 根据编码长度动态调整数组
@@ -977,10 +986,11 @@ void OLED_ShowMixStringArea(int16_t RangeX, int16_t RangeY, int16_t RangeWidth, 
   * @param ... 格式化字符串参数列表
   * @return 无
   */
-void OLED_PrintfMixArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight,int16_t X, int16_t Y, uint8_t ChineseFontSize,uint8_t ASCIIFontSize, char *format, ...)
+void OLED_PrintfMixArea(int16_t RangeX,int16_t RangeY,int16_t RangeWidth,int16_t RangeHeight,int16_t X, int16_t Y, uint8_t ChineseFontSize,uint8_t ASCIIFontSize, const char *format, ...)
 {
 	//由于有可能显示极长的字符串，所以128
 	char String[MAX_STRING_LENGTH];						//定义字符数组
+	if (format == NULL) {return;}
 	va_list arg;							//定义可变参数列表数据类型的变量arg
 	va_start(arg, format);					//从format开始，接收参数列表到arg变量
 	vsnprintf(String, sizeof(String), format, arg);

@@ -35,25 +35,25 @@ int main(void)
     rt_pin_mode(GPIO_LED, PIN_MODE_OUTPUT);
 
     oled_ui_boot_init();
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "OLED READY", RT_EOK);
+    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "屏幕就绪", RT_EOK);
 
     todo_snapshot_init();
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "TODO SNAPSHOT", RT_EOK);
+    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "待办快照", RT_EOK);
 
     ret = dht11_init();
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "DHT11 INIT", ret);
+    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "传感器初始化", ret);
 
     ret = sensor_service_start();
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "SENSOR THREAD", ret);
+    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "传感服务", ret);
 
     ret = esp01s_start_connect();
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "ESP THREAD", ret);
+    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "网络服务", ret);
 
     ret = aliyun_iot_start();
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "ALIYUN THREAD", ret);
+    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "云端服务", ret);
 
     ret = device_service_start();
-    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "DEVICE SERVICE", ret);
+    oled_ui_boot_step(step++, BOOT_STEP_TOTAL, "设备服务", ret);
 
     oled_ui_boot_complete();
     ret = oled_ui_core_start();

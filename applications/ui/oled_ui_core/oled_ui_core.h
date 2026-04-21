@@ -255,6 +255,7 @@ typedef struct MenuWindow{
     int16_t Prob_BottomDistance;                            //[进度条属性]进度条底部距离窗口底部的距离
     int16_t Prob_SideDistance;                              //[进度条属性]进度条边缘距离窗口边缘的距离
     int16_t Prob_LineHeight;                                //[进度条属性]进度条线条高度
+    bool Prob_ShowBar;                                      //[进度条属性]是否显示进度条
 
     float _LineSlip;                                        //[私有属性]用于滚动显示长文本
 }MenuWindow;

@@ -15,7 +15,7 @@ extern int16_t OLED_UI_Brightness;
 
 static volatile rt_uint8_t s_oled_ui_ready = 0U;
 static volatile rt_uint8_t s_oled_ui_started = 0U;
-static char s_boot_labels[OLED_BOOT_MAX_STEPS][20];
+static char s_boot_labels[OLED_BOOT_MAX_STEPS][32];
 static rt_int8_t s_boot_results[OLED_BOOT_MAX_STEPS];
 static rt_uint32_t s_boot_step_count = 0U;
 
@@ -34,13 +34,13 @@ static void oled_ui_boot_render(rt_uint32_t active_step, rt_uint32_t total)
     }
 
     OLED_Clear();
-    OLED_Printf(14, 6, OLED_8X16_HALF, "SYSTEM BOOT");
+    OLED_PrintfMix(28, 6, OLED_12X12_FULL, OLED_6X8_HALF, "系统启动");
     OLED_DrawLine(10, 24, 118, 24);
 
     for (i = 0; i < s_boot_step_count; i++)
     {
-        const char *mark = (s_boot_results[i] == RT_EOK) ? "[OK]" : ((s_boot_results[i] == 1) ? "[..]" : "[ER]");
-        OLED_Printf(10, 28 + (int)i * 8, OLED_6X8_HALF, "%s %s", mark, s_boot_labels[i]);
+        const char *mark = (s_boot_results[i] == RT_EOK) ? "完成" : ((s_boot_results[i] == 1) ? "进行" : "失败");
+        OLED_PrintfMix(10, 28 + (int)i * 8, OLED_8X8_FULL, OLED_6X8_HALF, "%s %s", mark, s_boot_labels[i]);
     }
 
     OLED_DrawRoundedRectangle(bar_x, bar_y, bar_w, bar_h, 2, OLED_UNFILLED);
@@ -93,7 +93,7 @@ void oled_ui_boot_step(rt_uint32_t step, rt_uint32_t total, const char *label, r
 void oled_ui_boot_complete(void)
 {
     OLED_Clear();
-    OLED_Printf(34, 20, OLED_8X16_HALF, "BOOT OK");
+    OLED_PrintfMix(28, 20, OLED_12X12_FULL, OLED_6X8_HALF, "启动完成");
     OLED_DrawLine(26, 40, 102, 40);
     OLED_Update();
     rt_thread_mdelay(220);
