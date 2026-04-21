@@ -44,6 +44,7 @@
 #define ALIYUN_IOT_TODO_JSON_MAX   4096
 #define ALIYUN_IOT_REPORT_QUEUE_SIZE  6
 #define ALIYUN_IOT_REPORT_BUF_MAX     256
+#define ALIYUN_IOT_PULL_PAYLOAD       "{\"type\":\"todo.pull\",\"source\":\"device\"}"
 #define ALIYUN_IOT_TOPIC_FMT       "/sys/%s/%s/thing/event/property/post"
 #define ALIYUN_IOT_PUB_REPLY_FMT   "/sys/%s/%s/thing/event/property/post_reply"
 #define ALIYUN_IOT_TEMP_KEY        "temperature"
@@ -464,6 +465,20 @@ static rt_err_t ali_subscribe_todo_topic(void)
     g_ali.subscribed = RT_TRUE;
     ali_set_state("SUB");
     rt_kprintf("[ALI] subscribed topic: %s\r\n", ALIYUN_IOT_SUB_TOPIC);
+    ret = esp01s_mqtt_pubraw(ALIYUN_IOT_REPORT_TOPIC,
+                             ALIYUN_IOT_PULL_PAYLOAD,
+                             sizeof(ALIYUN_IOT_PULL_PAYLOAD) - 1U,
+                             0,
+                             RT_FALSE);
+    if (ret != RT_EOK)
+    {
+        rt_kprintf("[ALI] todo pull req failed: %d\r\n", ret);
+        rt_kprintf("[ALI] todo pull rsp: %s\r\n", esp01s_last_response());
+        return ret;
+    }
+
+    ali_set_state("PULL");
+    rt_kprintf("[ALI] todo pull requested\r\n");
     return RT_EOK;
 }
 
