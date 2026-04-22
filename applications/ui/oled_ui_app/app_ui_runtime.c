@@ -8,7 +8,7 @@ rt_bool_t AppUI_UseSmoothCurve = RT_TRUE;
 
 uint8_t app_ui_get_move_style(void)
 {
-    return (AppUI_UseSmoothCurve != RT_FALSE) ? PID_CURVE : UNLINEAR;
+    return (AppUI_UseSmoothCurve != RT_FALSE) ? EASE_CURVE : UNLINEAR;
 }
 
 void app_ui_apply_runtime_to_page(MenuPage *page)

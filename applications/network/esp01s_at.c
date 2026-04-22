@@ -16,6 +16,7 @@
 #include <drivers/serial.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdarg.h>
 
 #include "esp01s_at.h"
@@ -32,6 +33,7 @@
 #define ESP01S_BOOT_RETRY     5
 #define ESP01S_JOIN_TIMEOUT   60000
 #define ESP01S_SCAN_TIMEOUT   15000
+#define ESP01S_SCAN_SETTLE_MS 120
 #define ESP01S_MAX_APS        8
 
 typedef struct
@@ -90,6 +92,7 @@ static rt_err_t esp01s_exec_any(const char *cmd_primary,
                                 rt_int32_t timeout_ms);
 static rt_err_t esp01s_write_bytes_nolock(const void *data, rt_size_t len);
 static rt_err_t esp01s_write_line_nolock(const char *fmt, ...);
+static rt_err_t esp01s_wait_token(const char *ok, const char *fail, rt_int32_t timeout_ms);
 static void esp01s_at_lock_take(void);
 static void esp01s_at_lock_release(void);
 
@@ -238,6 +241,192 @@ static void esp01s_update_rssi_from_scan(void)
     }
 }
 
+static char *esp01s_scan_parse_quoted_field(char *cursor, char *out, rt_size_t out_len)
+{
+    rt_size_t write_len = 0U;
+    rt_bool_t escape = RT_FALSE;
+    rt_bool_t closed = RT_FALSE;
+
+    if ((cursor == RT_NULL) || (*cursor != '"'))
+    {
+        return RT_NULL;
+    }
+
+    cursor++;
+    while (*cursor != '\0')
+    {
+        char ch = *cursor++;
+
+        if (escape != RT_FALSE)
+        {
+            escape = RT_FALSE;
+        }
+        else if (ch == '\\')
+        {
+            escape = RT_TRUE;
+            continue;
+        }
+        else if (ch == '"')
+        {
+            closed = RT_TRUE;
+            break;
+        }
+
+        if ((out != RT_NULL) && (out_len > 0U) && (write_len + 1U < out_len))
+        {
+            out[write_len++] = ch;
+        }
+    }
+
+    if (closed == RT_FALSE)
+    {
+        return RT_NULL;
+    }
+
+    if ((out != RT_NULL) && (out_len > 0U))
+    {
+        out[write_len] = '\0';
+    }
+
+    return cursor;
+}
+
+static char *esp01s_scan_skip_line(char *cursor)
+{
+    if (cursor == RT_NULL)
+    {
+        return RT_NULL;
+    }
+
+    while ((*cursor != '\0') && (*cursor != '\n'))
+    {
+        cursor++;
+    }
+
+    if (*cursor == '\n')
+    {
+        cursor++;
+    }
+
+    return cursor;
+}
+
+static char *esp01s_scan_skip_spaces(char *cursor)
+{
+    while ((cursor != RT_NULL) && ((*cursor == ' ') || (*cursor == '\t')))
+    {
+        cursor++;
+    }
+
+    return cursor;
+}
+
+static char *esp01s_parse_scan_entry(char *cursor, esp01s_ap_info_t *ap)
+{
+    char *parse_cursor = cursor;
+    char *end_ptr;
+    long parsed_value;
+    rt_bool_t wrapped = RT_FALSE;
+
+    if ((cursor == RT_NULL) || (ap == RT_NULL))
+    {
+        return RT_NULL;
+    }
+
+    if (strncmp(parse_cursor, "+CWLAP:", 7) != 0)
+    {
+        return RT_NULL;
+    }
+
+    memset(ap, 0, sizeof(*ap));
+    parse_cursor += 7;
+    parse_cursor = esp01s_scan_skip_spaces(parse_cursor);
+    if (*parse_cursor == '(')
+    {
+        wrapped = RT_TRUE;
+        parse_cursor++;
+        parse_cursor = esp01s_scan_skip_spaces(parse_cursor);
+    }
+
+    parsed_value = strtol(parse_cursor, &end_ptr, 10);
+    end_ptr = esp01s_scan_skip_spaces(end_ptr);
+    if ((end_ptr == parse_cursor) || (*end_ptr != ','))
+    {
+        return RT_NULL;
+    }
+    ap->ecn = (rt_uint8_t)((parsed_value < 0L) ? 0L : parsed_value);
+
+    parse_cursor = esp01s_scan_skip_spaces(end_ptr + 1);
+    parse_cursor = esp01s_scan_parse_quoted_field(parse_cursor, ap->ssid, sizeof(ap->ssid));
+    parse_cursor = esp01s_scan_skip_spaces(parse_cursor);
+    if ((parse_cursor == RT_NULL) || (*parse_cursor != ','))
+    {
+        return RT_NULL;
+    }
+
+    parse_cursor = esp01s_scan_skip_spaces(parse_cursor + 1);
+    parsed_value = strtol(parse_cursor, &end_ptr, 10);
+    if (end_ptr == parse_cursor)
+    {
+        return RT_NULL;
+    }
+    ap->rssi = (rt_int16_t)parsed_value;
+    parse_cursor = esp01s_scan_skip_spaces(end_ptr);
+
+    if (*parse_cursor == ',')
+    {
+        parse_cursor = esp01s_scan_skip_spaces(parse_cursor + 1);
+        if (*parse_cursor == '"')
+        {
+            parse_cursor = esp01s_scan_parse_quoted_field(parse_cursor, RT_NULL, 0U);
+            if (parse_cursor == RT_NULL)
+            {
+                return RT_NULL;
+            }
+            parse_cursor = esp01s_scan_skip_spaces(parse_cursor);
+        }
+        else
+        {
+            while ((*parse_cursor != '\0') &&
+                   (*parse_cursor != ',') &&
+                   (*parse_cursor != ')') &&
+                   (*parse_cursor != '\r') &&
+                   (*parse_cursor != '\n'))
+            {
+                parse_cursor++;
+            }
+        }
+    }
+
+    if (*parse_cursor == ',')
+    {
+        parse_cursor = esp01s_scan_skip_spaces(parse_cursor + 1);
+        parsed_value = strtol(parse_cursor, &end_ptr, 10);
+        if (end_ptr != parse_cursor)
+        {
+            ap->channel = (rt_uint8_t)((parsed_value < 0L) ? 0L : parsed_value);
+            parse_cursor = esp01s_scan_skip_spaces(end_ptr);
+        }
+    }
+
+    if (wrapped != RT_FALSE)
+    {
+        while ((*parse_cursor != '\0') &&
+               (*parse_cursor != ')') &&
+               (*parse_cursor != '\r') &&
+               (*parse_cursor != '\n'))
+        {
+            parse_cursor++;
+        }
+        if (*parse_cursor == ')')
+        {
+            parse_cursor++;
+        }
+    }
+
+    return esp01s_scan_skip_line(parse_cursor);
+}
+
 static rt_err_t esp01s_parse_scan_results(void)
 {
     char *cursor;
@@ -249,25 +438,14 @@ static rt_err_t esp01s_parse_scan_results(void)
     rt_hw_interrupt_enable(level);
 
     cursor = g_esp.rx_buf;
-    while ((cursor = rt_strstr(cursor, "+CWLAP:(")) != RT_NULL)
+    while ((cursor = rt_strstr(cursor, "+CWLAP:")) != RT_NULL)
     {
-        int ecn = 0;
-        int rssi = 0;
-        int channel = 0;
-        char ssid[33] = {0};
         esp01s_ap_info_t ap;
-        int matched;
+        char *next_cursor;
 
-        matched = sscanf(cursor, "+CWLAP:(%d,\"%32[^\"]\",%d,\"%*[^\"]\",%d", &ecn, ssid, &rssi, &channel);
-        if ((matched >= 3) && (count < ESP01S_MAX_APS))
+        next_cursor = esp01s_parse_scan_entry(cursor, &ap);
+        if ((next_cursor != RT_NULL) && (count < ESP01S_MAX_APS))
         {
-            memset(&ap, 0, sizeof(ap));
-            rt_strncpy(ap.ssid, ssid, sizeof(ap.ssid) - 1);
-            ap.ssid[sizeof(ap.ssid) - 1] = '\0';
-            ap.ecn = (rt_uint8_t)((ecn < 0) ? 0 : ecn);
-            ap.rssi = (rt_int16_t)rssi;
-            ap.channel = (rt_uint8_t)((matched >= 4 && channel >= 0) ? channel : 0);
-
             level = rt_hw_interrupt_disable();
             g_esp.aps[count] = ap;
             count++;
@@ -275,11 +453,46 @@ static rt_err_t esp01s_parse_scan_results(void)
             rt_hw_interrupt_enable(level);
         }
 
-        cursor += 8;
+        cursor = ((next_cursor != RT_NULL) && (next_cursor > cursor)) ? next_cursor : (cursor + 7);
     }
 
     esp01s_update_rssi_from_scan();
     return (count > 0U) ? RT_EOK : -RT_ERROR;
+}
+
+static rt_err_t esp01s_scan_once_locked(const char *command, rt_size_t *parsed_count)
+{
+    rt_err_t ret;
+
+    if (parsed_count != RT_NULL)
+    {
+        *parsed_count = 0U;
+    }
+
+    esp01s_clear_rx();
+    esp01s_clear_scan_list();
+
+    ret = esp01s_write_line_nolock("%s", (command != RT_NULL) ? command : "AT+CWLAP");
+    if (ret != RT_EOK)
+    {
+        return ret;
+    }
+
+    ret = esp01s_wait_token("OK", "ERROR", ESP01S_SCAN_TIMEOUT);
+    if (ret != RT_EOK)
+    {
+        return ret;
+    }
+
+    rt_thread_mdelay(ESP01S_SCAN_SETTLE_MS);
+    esp01s_pump_rx();
+    ret = esp01s_parse_scan_results();
+    if (parsed_count != RT_NULL)
+    {
+        *parsed_count = g_esp.ap_count;
+    }
+
+    return ret;
 }
 
 static rt_err_t esp01s_write_bytes_nolock(const void *data, rt_size_t len)
@@ -900,15 +1113,13 @@ rt_err_t esp01s_scan_aps(void)
 {
     rt_err_t ret;
     rt_bool_t was_connected;
+    rt_size_t parsed_count;
 
     was_connected = g_esp.connected;
 
     g_esp.scan_busy = RT_TRUE;
     esp01s_set_state("SCAN");
-    esp01s_clear_rx();
-    esp01s_clear_scan_list();
-
-    ret = esp01s_write_line("AT+CWLAP");
+    ret = esp01s_probe();
     if (ret != RT_EOK)
     {
         g_esp.scan_busy = RT_FALSE;
@@ -917,16 +1128,47 @@ rt_err_t esp01s_scan_aps(void)
         return ret;
     }
 
-    ret = esp01s_wait_token("OK", "ERROR", ESP01S_SCAN_TIMEOUT);
-    g_esp.scan_busy = RT_FALSE;
+    ret = esp01s_exec_any("AT+CWLAPOPT=1,31", RT_NULL, "OK", "ERROR", 1500);
     if (ret != RT_EOK)
     {
-        esp01s_set_error(ret);
-        esp01s_set_state("ERR");
-        return ret;
+        rt_kprintf("[ESP] scan opt: skip\r\n");
     }
 
-    ret = esp01s_parse_scan_results();
+    esp01s_at_lock_take();
+    ret = esp01s_scan_once_locked("AT+CWLAP", &parsed_count);
+    esp01s_at_lock_release();
+    rt_kprintf("[ESP] scan count=%u ret=%d\r\n", (unsigned int)parsed_count, ret);
+    if ((ret != RT_EOK) && (g_esp.rx_len > 0U))
+    {
+        rt_kprintf("[ESP] scan rsp: %s\r\n", g_esp.rx_buf);
+    }
+
+    if ((ret != RT_EOK) && (was_connected != RT_FALSE))
+    {
+        rt_kprintf("[ESP] retry scan after disconnect\r\n");
+        ret = esp01s_exec_any("AT+CWQAP", RT_NULL, "OK", "ERROR", 3000);
+        if (ret == RT_EOK)
+        {
+            g_esp.connected = RT_FALSE;
+            g_esp.ip[0] = '\0';
+            rt_thread_mdelay(600);
+
+            esp01s_at_lock_take();
+            ret = esp01s_scan_once_locked("AT+CWLAP", &parsed_count);
+            esp01s_at_lock_release();
+            rt_kprintf("[ESP] rescan count=%u ret=%d\r\n", (unsigned int)parsed_count, ret);
+            if ((ret != RT_EOK) && (g_esp.rx_len > 0U))
+            {
+                rt_kprintf("[ESP] rescan rsp: %s\r\n", g_esp.rx_buf);
+            }
+        }
+        else
+        {
+            rt_kprintf("[ESP] disconnect before rescan failed: %d\r\n", ret);
+        }
+    }
+
+    g_esp.scan_busy = RT_FALSE;
     esp01s_set_error(ret);
     esp01s_set_state((ret == RT_EOK) ? (g_esp.connected ? "UP" : "SCANOK") : "ERR");
 

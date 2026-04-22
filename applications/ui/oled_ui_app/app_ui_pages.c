@@ -69,6 +69,7 @@ static rt_uint32_t s_visible_todo_count = 0U;
 static rt_size_t s_visible_scan_count = 0U;
 static MenuPage *s_previous_page = RT_NULL;
 static bool s_smooth_animation_enabled = true;
+static bool s_wifi_scan_requested = false;
 static rt_int16_t s_pc_volume_delta = 0;
 static rt_int16_t s_pc_brightness_delta = 0;
 static rt_int16_t s_pc_volume_shadow = 0;
@@ -396,7 +397,13 @@ static void app_ui_open_pc_brightness_window(void)
 
 static void app_ui_request_scan(void)
 {
-    (void)device_net_service_request_scan();
+    rt_err_t ret = device_net_service_request_scan();
+
+    rt_kprintf("[UI] wifi scan request ret=%d\r\n", ret);
+    if (ret == RT_EOK)
+    {
+        s_wifi_scan_requested = true;
+    }
 }
 
 static void app_ui_request_rejoin(void)
@@ -540,6 +547,8 @@ static void app_ui_refresh_wifi_info_items(void)
 static void app_ui_refresh_scan_items(void)
 {
     esp01s_ap_info_t ap_list[APP_UI_SCAN_MAX_APS];
+    esp01s_status_t wifi_status;
+    device_net_service_status_t net_status;
     rt_size_t count;
     rt_size_t index;
 
@@ -550,6 +559,11 @@ static void app_ui_refresh_scan_items(void)
     WiFiScanMenuItems[0].List_IntBox = RT_NULL;
     WiFiScanMenuItems[0].List_FloatBox = RT_NULL;
 
+    memset(&wifi_status, 0, sizeof(wifi_status));
+    memset(&net_status, 0, sizeof(net_status));
+    esp01s_get_status(&wifi_status);
+    device_net_service_get_status(&net_status);
+
     count = esp01s_get_scan_list(ap_list, APP_UI_SCAN_MAX_APS);
     if (count > APP_UI_SCAN_MAX_APS)
     {
@@ -558,7 +572,15 @@ static void app_ui_refresh_scan_items(void)
 
     if (count == 0U)
     {
-        rt_strncpy(s_scan_lines[0], APP_UI_TXT_WIFI_EMPTY, sizeof(s_scan_lines[0]) - 1U);
+        const char *empty_text = APP_UI_TXT_WIFI_EMPTY;
+
+        if ((wifi_status.scan_busy != RT_FALSE) ||
+            ((net_status.busy != RT_FALSE) && (net_status.active_job == DEVICE_NET_JOB_WIFI_SCAN)))
+        {
+            empty_text = "正在扫描...";
+        }
+
+        rt_strncpy(s_scan_lines[0], empty_text, sizeof(s_scan_lines[0]) - 1U);
         s_scan_lines[0][sizeof(s_scan_lines[0]) - 1U] = '\0';
         WiFiScanMenuItems[1].General_item_text = s_scan_lines[0];
         WiFiScanMenuItems[1].General_callback = RT_NULL;
@@ -878,7 +900,7 @@ MenuPage MainMenuPage = {
     .General_MenuType = MENU_TYPE_TILES,
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
-    .General_MoveStyle = PID_CURVE,
+    .General_MoveStyle = EASE_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = RT_NULL,
     .General_MenuItems = MainMenuItems,
@@ -893,7 +915,7 @@ MenuPage TodoMenuPage = {
     .General_MenuType = MENU_TYPE_LIST,
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
-    .General_MoveStyle = PID_CURVE,
+    .General_MoveStyle = EASE_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &MainMenuPage,
     .General_MenuItems = TodoMenuItems,
@@ -909,7 +931,7 @@ MenuPage WiFiMenuPage = {
     .General_MenuType = MENU_TYPE_LIST,
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
-    .General_MoveStyle = PID_CURVE,
+    .General_MoveStyle = EASE_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &MainMenuPage,
     .General_MenuItems = WiFiMenuItems,
@@ -925,7 +947,7 @@ MenuPage WiFiInfoMenuPage = {
     .General_MenuType = MENU_TYPE_LIST,
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = NOT_SHOW,
-    .General_MoveStyle = PID_CURVE,
+    .General_MoveStyle = EASE_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &WiFiMenuPage,
     .General_MenuItems = WiFiInfoMenuItems,
@@ -941,7 +963,7 @@ MenuPage WiFiScanMenuPage = {
     .General_MenuType = MENU_TYPE_LIST,
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
-    .General_MoveStyle = PID_CURVE,
+    .General_MoveStyle = EASE_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &WiFiMenuPage,
     .General_MenuItems = WiFiScanMenuItems,
@@ -957,7 +979,7 @@ MenuPage PCControlMenuPage = {
     .General_MenuType = MENU_TYPE_LIST,
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
-    .General_MoveStyle = PID_CURVE,
+    .General_MoveStyle = EASE_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &MainMenuPage,
     .General_MenuItems = PCControlMenuItems,
@@ -973,7 +995,7 @@ MenuPage PCShortcutMenuPage = {
     .General_MenuType = MENU_TYPE_LIST,
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
-    .General_MoveStyle = PID_CURVE,
+    .General_MoveStyle = EASE_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &PCControlMenuPage,
     .General_MenuItems = PCShortcutMenuItems,
@@ -989,7 +1011,7 @@ MenuPage ShortcutPresetPage1 = {
     .General_MenuType = MENU_TYPE_LIST,
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
-    .General_MoveStyle = PID_CURVE,
+    .General_MoveStyle = EASE_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &PCShortcutMenuPage,
     .General_MenuItems = ShortcutPresetMenuItems,
@@ -1005,7 +1027,7 @@ MenuPage ShortcutPresetPage2 = {
     .General_MenuType = MENU_TYPE_LIST,
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
-    .General_MoveStyle = PID_CURVE,
+    .General_MoveStyle = EASE_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &PCShortcutMenuPage,
     .General_MenuItems = ShortcutPresetMenuItems,
@@ -1021,7 +1043,7 @@ MenuPage ShortcutPresetPage3 = {
     .General_MenuType = MENU_TYPE_LIST,
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
-    .General_MoveStyle = PID_CURVE,
+    .General_MoveStyle = EASE_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &PCShortcutMenuPage,
     .General_MenuItems = ShortcutPresetMenuItems,
@@ -1037,7 +1059,7 @@ MenuPage ShortcutPresetPage4 = {
     .General_MenuType = MENU_TYPE_LIST,
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
-    .General_MoveStyle = PID_CURVE,
+    .General_MoveStyle = EASE_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &PCShortcutMenuPage,
     .General_MenuItems = ShortcutPresetMenuItems,
@@ -1053,7 +1075,7 @@ MenuPage StatusMenuPage = {
     .General_MenuType = MENU_TYPE_LIST,
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = NOT_SHOW,
-    .General_MoveStyle = PID_CURVE,
+    .General_MoveStyle = EASE_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &MainMenuPage,
     .General_MenuItems = StatusMenuItems,
@@ -1069,7 +1091,7 @@ MenuPage SettingsMenuPage = {
     .General_MenuType = MENU_TYPE_LIST,
     .General_MovingSpeed = 7.0f,
     .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
-    .General_MoveStyle = PID_CURVE,
+    .General_MoveStyle = EASE_CURVE,
     .General_FontSize = OLED_UI_FONT_12,
     .General_ParentMenuPage = &MainMenuPage,
     .General_MenuItems = SettingsMenuItems,
@@ -1133,7 +1155,11 @@ void app_ui_refresh_pages(void)
 
         app_ui_clamp_cursor(&WiFiScanMenuPage, (rt_uint32_t)s_visible_scan_count);
         device_net_service_get_status(&net_status);
-        if ((s_previous_page != &WiFiScanMenuPage) && (net_status.busy == RT_FALSE))
+        if (s_previous_page != &WiFiScanMenuPage)
+        {
+            s_wifi_scan_requested = false;
+        }
+        if ((s_wifi_scan_requested == false) && (net_status.busy == RT_FALSE))
         {
             app_ui_request_scan();
         }

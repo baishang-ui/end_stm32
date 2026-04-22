@@ -10,6 +10,9 @@
 #include "usb_d.h"
 
 #define DEVICE_NET_QUEUE_DEPTH              8U
+#define DEVICE_NET_THREAD_STACK_SIZE        4096U
+#define DEVICE_SCAN_THREAD_STACK_SIZE       4096U
+#define DEVICE_USB_THREAD_STACK_SIZE        3072U
 #define DEVICE_USB_LEVEL_STEP               2
 #define DEVICE_USB_PENDING_MAX              32767
 #define DEVICE_USB_IDLE_DELAY_MS            5
@@ -43,8 +46,7 @@
 
 typedef enum
 {
-    DEVICE_NET_CMD_WIFI_SCAN = 0,
-    DEVICE_NET_CMD_WIFI_CONNECT,
+    DEVICE_NET_CMD_WIFI_CONNECT = 0,
     DEVICE_NET_CMD_WIFI_REJOIN,
     DEVICE_NET_CMD_TODO_REPORT,
 } device_net_cmd_t;
@@ -110,12 +112,18 @@ static const device_usb_shortcut_preset_entry_t s_usb_shortcut_presets[DEVICE_US
 
 static struct rt_messagequeue s_net_mq;
 static char s_net_mq_pool[sizeof(device_net_msg_t) * DEVICE_NET_QUEUE_DEPTH];
+static struct rt_semaphore s_scan_sem;
 static struct rt_mutex s_net_lock;
 static struct rt_mutex s_usb_lock;
 static rt_bool_t s_net_inited = RT_FALSE;
+static rt_bool_t s_scan_inited = RT_FALSE;
 static rt_bool_t s_usb_inited = RT_FALSE;
 static rt_bool_t s_service_started = RT_FALSE;
 static rt_bool_t s_service_starting = RT_FALSE;
+static rt_thread_t s_net_thread = RT_NULL;
+static rt_thread_t s_scan_thread = RT_NULL;
+static rt_thread_t s_usb_thread = RT_NULL;
+static rt_bool_t s_scan_pending = RT_FALSE;
 
 static device_net_service_status_t s_net_status;
 static device_usb_service_status_t s_usb_status;
@@ -417,6 +425,12 @@ static void device_net_set_status(rt_bool_t busy,
     rt_mutex_release(&s_net_lock);
 }
 
+static rt_bool_t device_scan_is_active_locked(void)
+{
+    return (s_scan_pending != RT_FALSE) ||
+           ((s_net_status.busy != RT_FALSE) && (s_net_status.active_job == DEVICE_NET_JOB_WIFI_SCAN));
+}
+
 static void device_usb_update_status(rt_bool_t stack_started,
                                      rt_bool_t ready,
                                      rt_bool_t can_send,
@@ -450,7 +464,9 @@ static void device_net_thread(void *parameter)
     rt_err_t ret;
 
     RT_UNUSED(parameter);
+    rt_kprintf("[DEVNET] thread boot\r\n");
     device_net_set_status(RT_FALSE, RT_EOK, DEVICE_NET_JOB_NONE, RT_NULL);
+    rt_kprintf("[DEVNET] thread ready\r\n");
 
     while (1)
     {
@@ -462,12 +478,6 @@ static void device_net_thread(void *parameter)
 
         switch (msg.cmd)
         {
-        case DEVICE_NET_CMD_WIFI_SCAN:
-            device_net_set_status(RT_TRUE, RT_EOK, DEVICE_NET_JOB_WIFI_SCAN, RT_NULL);
-            ret = esp01s_scan_aps();
-            device_net_set_status(RT_FALSE, ret, DEVICE_NET_JOB_NONE, RT_NULL);
-            break;
-
         case DEVICE_NET_CMD_WIFI_CONNECT:
             device_net_set_status(RT_TRUE, RT_EOK, DEVICE_NET_JOB_WIFI_CONNECT, msg.ssid);
             ret = esp01s_join_saved_ap(msg.ssid, msg.ecn);
@@ -490,6 +500,37 @@ static void device_net_thread(void *parameter)
             device_net_set_status(RT_FALSE, -RT_EINVAL, DEVICE_NET_JOB_NONE, RT_NULL);
             break;
         }
+    }
+}
+
+static void device_scan_thread(void *parameter)
+{
+    rt_err_t ret;
+
+    RT_UNUSED(parameter);
+    rt_kprintf("[DEVSCAN] thread boot\r\n");
+
+    while (1)
+    {
+        ret = rt_sem_take(&s_scan_sem, RT_WAITING_FOREVER);
+        if (ret != RT_EOK)
+        {
+            continue;
+        }
+
+        while (rt_sem_take(&s_scan_sem, 0) == RT_EOK)
+        {
+        }
+
+        device_net_set_status(RT_TRUE, RT_EOK, DEVICE_NET_JOB_WIFI_SCAN, RT_NULL);
+        rt_mutex_take(&s_net_lock, RT_WAITING_FOREVER);
+        s_scan_pending = RT_FALSE;
+        rt_mutex_release(&s_net_lock);
+
+        rt_kprintf("[DEVSCAN] wifi scan start\r\n");
+        ret = esp01s_scan_aps();
+        device_net_set_status(RT_FALSE, ret, DEVICE_NET_JOB_NONE, RT_NULL);
+        rt_kprintf("[DEVSCAN] wifi scan done ret=%d\r\n", ret);
     }
 }
 
@@ -679,8 +720,7 @@ static rt_err_t device_net_post(const device_net_msg_t *msg)
 
 int device_service_start(void)
 {
-    rt_thread_t net_thread;
-    rt_thread_t usb_thread;
+    rt_err_t startup_ret;
 
     if (s_service_started || s_service_starting)
     {
@@ -707,6 +747,12 @@ int device_service_start(void)
         s_net_inited = RT_TRUE;
     }
 
+    if (!s_scan_inited)
+    {
+        rt_sem_init(&s_scan_sem, "devscan", 0, RT_IPC_FLAG_PRIO);
+        s_scan_inited = RT_TRUE;
+    }
+
     if (!s_usb_inited)
     {
         rt_mutex_init(&s_usb_lock, "devusblk", RT_IPC_FLAG_PRIO);
@@ -714,23 +760,73 @@ int device_service_start(void)
         s_usb_inited = RT_TRUE;
     }
 
-    net_thread = rt_thread_create("devnet", device_net_thread, RT_NULL, 3072, 20, 10);
-    if (net_thread == RT_NULL)
+    s_net_thread = rt_thread_create("devnet", device_net_thread, RT_NULL, DEVICE_NET_THREAD_STACK_SIZE, 20, 10);
+    if (s_net_thread == RT_NULL)
     {
         s_service_starting = RT_FALSE;
         return -RT_ENOMEM;
     }
 
-    usb_thread = rt_thread_create("devusb", device_usb_thread, RT_NULL, 3072, 21, 10);
-    if (usb_thread == RT_NULL)
+    s_scan_thread = rt_thread_create("devscan", device_scan_thread, RT_NULL, DEVICE_SCAN_THREAD_STACK_SIZE, 20, 10);
+    if (s_scan_thread == RT_NULL)
     {
-        rt_thread_delete(net_thread);
+        rt_thread_delete(s_net_thread);
+        s_net_thread = RT_NULL;
         s_service_starting = RT_FALSE;
         return -RT_ENOMEM;
     }
 
-    rt_thread_startup(net_thread);
-    rt_thread_startup(usb_thread);
+    s_usb_thread = rt_thread_create("devusb", device_usb_thread, RT_NULL, DEVICE_USB_THREAD_STACK_SIZE, 21, 10);
+    if (s_usb_thread == RT_NULL)
+    {
+        rt_thread_delete(s_net_thread);
+        rt_thread_delete(s_scan_thread);
+        s_net_thread = RT_NULL;
+        s_scan_thread = RT_NULL;
+        s_service_starting = RT_FALSE;
+        return -RT_ENOMEM;
+    }
+
+    startup_ret = rt_thread_startup(s_net_thread);
+    rt_kprintf("[DEVNET] startup ret=%d stack=%u\r\n", startup_ret, (unsigned int)DEVICE_NET_THREAD_STACK_SIZE);
+    if (startup_ret != RT_EOK)
+    {
+        rt_thread_delete(s_net_thread);
+        rt_thread_delete(s_scan_thread);
+        rt_thread_delete(s_usb_thread);
+        s_net_thread = RT_NULL;
+        s_scan_thread = RT_NULL;
+        s_usb_thread = RT_NULL;
+        s_service_starting = RT_FALSE;
+        return startup_ret;
+    }
+
+    startup_ret = rt_thread_startup(s_scan_thread);
+    rt_kprintf("[DEVSCAN] startup ret=%d stack=%u\r\n", startup_ret, (unsigned int)DEVICE_SCAN_THREAD_STACK_SIZE);
+    if (startup_ret != RT_EOK)
+    {
+        rt_thread_delete(s_net_thread);
+        rt_thread_delete(s_scan_thread);
+        rt_thread_delete(s_usb_thread);
+        s_net_thread = RT_NULL;
+        s_scan_thread = RT_NULL;
+        s_usb_thread = RT_NULL;
+        s_service_starting = RT_FALSE;
+        return startup_ret;
+    }
+
+    startup_ret = rt_thread_startup(s_usb_thread);
+    if (startup_ret != RT_EOK)
+    {
+        rt_thread_delete(s_net_thread);
+        rt_thread_delete(s_scan_thread);
+        rt_thread_delete(s_usb_thread);
+        s_net_thread = RT_NULL;
+        s_scan_thread = RT_NULL;
+        s_usb_thread = RT_NULL;
+        s_service_starting = RT_FALSE;
+        return startup_ret;
+    }
 
     s_service_started = RT_TRUE;
     s_service_starting = RT_FALSE;
@@ -739,11 +835,33 @@ int device_service_start(void)
 
 rt_err_t device_net_service_request_scan(void)
 {
-    device_net_msg_t msg;
+    rt_err_t ret;
 
-    memset(&msg, 0, sizeof(msg));
-    msg.cmd = DEVICE_NET_CMD_WIFI_SCAN;
-    return device_net_post(&msg);
+    if (!s_service_started || (s_scan_thread == RT_NULL))
+    {
+        return -RT_ENOSYS;
+    }
+
+    rt_mutex_take(&s_net_lock, RT_WAITING_FOREVER);
+    if (device_scan_is_active_locked() != RT_FALSE)
+    {
+        rt_mutex_release(&s_net_lock);
+        rt_kprintf("[DEVSCAN] request ignored busy=1\r\n");
+        return RT_EOK;
+    }
+    s_scan_pending = RT_TRUE;
+    rt_mutex_release(&s_net_lock);
+
+    ret = rt_sem_release(&s_scan_sem);
+    if (ret != RT_EOK)
+    {
+        rt_mutex_take(&s_net_lock, RT_WAITING_FOREVER);
+        s_scan_pending = RT_FALSE;
+        rt_mutex_release(&s_net_lock);
+    }
+
+    rt_kprintf("[DEVSCAN] request ret=%d thread=%d\r\n", ret, (rt_thread_find("devscan") != RT_NULL) ? 1 : 0);
+    return ret;
 }
 
 rt_err_t device_net_service_request_connect(const char *ssid, rt_uint8_t ecn)

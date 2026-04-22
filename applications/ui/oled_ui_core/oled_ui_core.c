@@ -254,6 +254,70 @@ MenuID oled_ui_get_menu_item_count(MenuItem * items){
     return num;
 }
 
+static float oled_ui_absf(float value){
+    return (value < 0.0f) ? -value : value;
+}
+
+static float oled_ui_ease_smoother_step(float progress){
+    if(progress <= 0.0f){
+        return 0.0f;
+    }
+    if(progress >= 1.0f){
+        return 1.0f;
+    }
+
+    return progress * progress * progress *
+           (progress * (progress * 6.0f - 15.0f) + 10.0f);
+}
+
+static float oled_ui_match_unlinear_step(float distance_abs, float moving_speed){
+    float gain;
+    float finish_threshold;
+    float remaining_error;
+    int frames = 0;
+
+    if(moving_speed <= 0.0f){
+        return 1.0f;
+    }
+
+    gain = 0.02f * moving_speed;
+    if(gain >= 1.0f){
+        return 1.0f;
+    }
+
+    finish_threshold = moving_speed / 20.0f;
+    if(finish_threshold < 0.02f){
+        finish_threshold = 0.02f;
+    }
+
+    if(distance_abs <= finish_threshold){
+        return 1.0f;
+    }
+
+    remaining_error = distance_abs;
+    while((remaining_error > finish_threshold) && (frames < 512)){
+        remaining_error -= gain * remaining_error;
+        frames++;
+    }
+
+    if(frames <= 0){
+        return 1.0f;
+    }
+
+    return 1.0f / (float)frames;
+}
+
+static bool oled_ui_window_is_hidden(void){
+    const float hidden_width = 60.0f;
+    const float hidden_height = 30.0f;
+    const float hidden_x = (OLED_WIDTH - hidden_width) / 2.0f;
+    const float hidden_y = -40.0f;
+
+    return (oled_ui_absf(OLED_UI_Window.CurrentArea.Width - hidden_width) < 0.05f) &&
+           (oled_ui_absf(OLED_UI_Window.CurrentArea.Height - hidden_height) < 0.05f) &&
+           (oled_ui_absf(OLED_UI_Window.CurrentArea.X - hidden_x) < 0.05f) &&
+           (oled_ui_absf(OLED_UI_Window.CurrentArea.Y - hidden_y) < 0.05f);
+}
 
 /**
  * @brief 根据当前所选的动画方式，改变浮点数参数
@@ -264,6 +328,12 @@ MenuID oled_ui_get_menu_item_count(MenuItem * items){
  * @return 无
  */
 void oled_ui_animate_scalar(float *CurrentNum, float *TargetNum, float *ErrorNum, float *LastErrorNum, float * IntegralNum, float *DerivativeNum)  {
+    if((CurrentNum == NULL) || (TargetNum == NULL) || (ErrorNum == NULL) ||
+       (LastErrorNum == NULL) || (IntegralNum == NULL) || (DerivativeNum == NULL) ||
+       (CurrentMenuPage == NULL)){
+        return;
+    }
+
     if(CurrentMenuPage->General_MoveStyle ==  UNLINEAR){
         if(*CurrentNum == *TargetNum){
             return;
@@ -290,81 +360,84 @@ void oled_ui_animate_scalar(float *CurrentNum, float *TargetNum, float *ErrorNum
             return;
         }
     }
-    //如果当前的动画方式是PID_CURVE方式
-    if(CurrentMenuPage->General_MoveStyle ==  PID_CURVE){
-        float smooth_time;
-        float delta_time;
-        float omega;
-        float x;
-        float exp_factor;
-        float change;
-        float target;
-        float max_speed;
-        float max_change;
-        float temp;
-        float original_to;
-        float output;
-        float velocity;
+    if(CurrentMenuPage->General_MoveStyle == EASE_CURVE){
+        float distance_abs;
+        float previous_value;
+        float progress_step;
+        float progress;
+        float eased_progress;
+        float start_value;
+        float cached_target;
+        float distance;
 
         if(CurrentMenuPage->General_MovingSpeed <= 0){
             *ErrorNum = 0;
-            *LastErrorNum = 0;
-            *DerivativeNum = 0;
-            *IntegralNum = 0;
+            *LastErrorNum = *TargetNum;
+            *IntegralNum = 1.0f;
+            *DerivativeNum = 0.0f;
             *CurrentNum = *TargetNum;
             return;
         }
 
-        /* 改为更丝滑的 SmoothDamp/临界阻尼曲线：
-         * 速度连续变化，起停更柔和，不会在中段突然蹿升。 */
-        smooth_time = 0.22f - 0.012f * CurrentMenuPage->General_MovingSpeed;
-        if(smooth_time < 0.10f){
-            smooth_time = 0.10f;
+        if((oled_ui_absf(*TargetNum - *CurrentNum) < 0.02f) &&
+           (oled_ui_absf(*TargetNum - *LastErrorNum) < 0.02f)){
+            *ErrorNum = *TargetNum;
+            *LastErrorNum = *TargetNum;
+            *IntegralNum = 1.0f;
+            *DerivativeNum = 0.0f;
+            *CurrentNum = *TargetNum;
+            return;
         }
 
-        delta_time = 0.016f;
-        omega = 2.0f / smooth_time;
-        x = omega * delta_time;
-        exp_factor = 1.0f / (1.0f + x + 0.48f * x * x + 0.235f * x * x * x);
-
-        change = *CurrentNum - *TargetNum;
-        target = *TargetNum;
-        max_speed = 240.0f + 28.0f * CurrentMenuPage->General_MovingSpeed;
-        max_change = max_speed * smooth_time;
-
-        if(change > max_change){
-            change = max_change;
-        }
-        if(change < -max_change){
-            change = -max_change;
+        if((oled_ui_absf(*TargetNum - *LastErrorNum) > 0.02f) ||
+           (*IntegralNum < 0.0f) ||
+           (*IntegralNum > 1.0f)){
+            *ErrorNum = *CurrentNum;
+            *LastErrorNum = *TargetNum;
+            *IntegralNum = 0.0f;
+            *DerivativeNum = 0.0f;
         }
 
-        original_to = target;
-        target = *CurrentNum - change;
-        velocity = *DerivativeNum;
-        temp = (velocity + omega * change) * delta_time;
-        velocity = (velocity - omega * temp) * exp_factor;
-        output = target + (change + temp) * exp_factor;
+        start_value = *ErrorNum;
+        cached_target = *LastErrorNum;
+        distance = cached_target - start_value;
+        distance_abs = oled_ui_absf(distance);
 
-        if(((original_to - *CurrentNum) > 0.0f) == (output > original_to)){
-            output = original_to;
-            velocity = 0.0f;
+        if(distance_abs < 0.02f){
+            *ErrorNum = *TargetNum;
+            *LastErrorNum = *TargetNum;
+            *IntegralNum = 1.0f;
+            *DerivativeNum = 0.0f;
+            *CurrentNum = *TargetNum;
+            return;
         }
 
-        *DerivativeNum = velocity;
-        *ErrorNum = original_to - output;
-        *LastErrorNum = *ErrorNum;
-        *IntegralNum = 0.0f;
-        *CurrentNum = output;
+        progress_step = oled_ui_match_unlinear_step(distance_abs, CurrentMenuPage->General_MovingSpeed);
+        if(progress_step < 0.0015f){
+            progress_step = 0.0015f;
+        }else if(progress_step > 0.08f){
+            progress_step = 0.08f;
+        }
 
-        if(fabs(*TargetNum - *CurrentNum) < 0.12f && fabs(*DerivativeNum) < 0.08f){
-            *ErrorNum = 0;
-            *LastErrorNum = 0;
-            *DerivativeNum = 0;
+        progress = *IntegralNum + progress_step;
+        if(progress > 1.0f){
+            progress = 1.0f;
+        }
+
+        eased_progress = oled_ui_ease_smoother_step(progress);
+        previous_value = *CurrentNum;
+        *CurrentNum = start_value + distance * eased_progress;
+        *IntegralNum = progress;
+        *DerivativeNum = *CurrentNum - previous_value;
+
+        if((progress >= 1.0f) || (oled_ui_absf(*TargetNum - *CurrentNum) < 0.02f)){
+            *ErrorNum = *TargetNum;
+            *LastErrorNum = *TargetNum;
+            *IntegralNum = 1.0f;
+            *DerivativeNum = 0.0f;
             *CurrentNum = *TargetNum;
         }
     }
-
 }
 
 /**
@@ -638,7 +711,7 @@ void oled_ui_draw_window(void){
 
 
     //如果窗口动画还没有退出屏幕，则绘制窗口
-    if(OLED_SustainCounter.SustainFlag == true || (OLED_UI_Window.CurrentArea.Height != 30 && OLED_UI_Window.CurrentArea.Width != 60 && OLED_UI_Window.CurrentArea.Y != -40)){
+    if((OLED_SustainCounter.SustainFlag == true) || !oled_ui_window_is_hidden()){
         char DataText[16] = {0};
         int16_t MaxLength  = OLED_UI_Window.CurrentArea.Width - 2*CurrentWindow->Text_FontSideDistance;
         int16_t DataLength = 0;

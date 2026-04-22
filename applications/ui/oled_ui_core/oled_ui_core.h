@@ -119,7 +119,7 @@ extern uint8_t OLED_DisplayBuf[OLED_HEIGHT/8][OLED_WIDTH];
 
 /*********************关于动画类型的宏********************** */
 #define UNLINEAR                  (0)
-#define PID_CURVE                 (1)
+#define EASE_CURVE                (1)
 
 /*********************关于窗口类型的宏********************** */
 #define WINDOW_RECTANGLE            (0)         //矩形窗口
@@ -201,13 +201,13 @@ typedef struct oled_ui_anim_point{
 } oled_ui_anim_point_t;
 
 /**
- * @brief 此结构体用于计算动画,需要包含关于非线性，pid等的参数。
+ * @brief 此结构体用于计算动画，兼容非线性与 ease 曲线的状态缓存。
  *  @param CurrentDistance 当前值
  *  @param TargetDistance 目标值
- *  @param Error 误差值
- *  @param LastError 上一次的误差值
- *  @param Integral 积分值
- *  @param Derivative 微分值
+ *  @param Error 兼容状态缓存
+ *  @param LastError 兼容状态缓存
+ *  @param Integral 兼容状态缓存
+ *  @param Derivative 兼容状态缓存
  *  */ 
 typedef struct oled_ui_anim_distance{
     float CurrentDistance;      //当前值
