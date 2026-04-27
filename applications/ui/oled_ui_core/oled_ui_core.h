@@ -326,6 +326,7 @@ void oled_ui_restore_parent_page(void);
 void oled_ui_init(MenuPage* Page);
 bool oled_ui_is_enter_idle(void);
 bool oled_ui_is_fade_idle(void);
+int16_t oled_ui_calc_raw_string_width(int16_t ChineseFont, int16_t ASCIIFont, const char *String);
 int16_t oled_ui_calc_string_width(int16_t ChineseFont, int16_t ASCIIFont, const char *format, ...);
 int8_t oled_ui_get_window_data_style(int16_t *int16_tdata,float *float_tdata);
 void oled_ui_draw_window(void);

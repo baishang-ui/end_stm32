@@ -105,8 +105,6 @@ static void app_ui_update_pc_delta(void);
 static bool app_ui_float_changed(float lhs, float rhs);
 static bool app_ui_runtime_changed(void);
 static void app_ui_commit_runtime_cache(void);
-static bool app_ui_is_wifi_page(MenuPage *page);
-static bool app_ui_is_pc_page(MenuPage *page);
 static void app_ui_refresh_dynamic_content(bool force_refresh);
 
 static void app_ui_copy_visible_text(char *dst, rt_size_t dst_len, const char *src)
@@ -217,23 +215,6 @@ static void app_ui_commit_runtime_cache(void)
     s_cached_use_smooth_curve = s_smooth_animation_enabled ? RT_TRUE : RT_FALSE;
 }
 
-static bool app_ui_is_wifi_page(MenuPage *page)
-{
-    return (page == &WiFiMenuPage) ||
-           (page == &WiFiInfoMenuPage) ||
-           (page == &WiFiScanMenuPage);
-}
-
-static bool app_ui_is_pc_page(MenuPage *page)
-{
-    return (page == &PCControlMenuPage) ||
-           (page == &PCShortcutMenuPage) ||
-           (page == &ShortcutPresetPage1) ||
-           (page == &ShortcutPresetPage2) ||
-           (page == &ShortcutPresetPage3) ||
-           (page == &ShortcutPresetPage4);
-}
-
 static void app_ui_refresh_dynamic_content(bool force_refresh)
 {
     MenuPage *page = CurrentMenuPage;
@@ -250,27 +231,39 @@ static void app_ui_refresh_dynamic_content(bool force_refresh)
 
     s_last_dynamic_refresh_tick = now_tick;
 
-    if (force_refresh || (page == &TodoMenuPage))
+    if (page == &TodoMenuPage)
     {
         app_ui_refresh_todo_items();
     }
 
-    if (force_refresh || app_ui_is_wifi_page(page))
+    if (page == &WiFiInfoMenuPage)
     {
         app_ui_refresh_wifi_info_items();
+    }
+    else if (page == &WiFiScanMenuPage)
+    {
         app_ui_refresh_scan_items();
     }
 
-    if (force_refresh || (page == &StatusMenuPage))
+    if (page == &StatusMenuPage)
     {
         app_ui_refresh_status_items();
     }
 
-    if (force_refresh || app_ui_is_pc_page(page))
+    if (page == &PCControlMenuPage)
+    {
+        app_ui_refresh_pc_items();
+    }
+    else if (page == &PCShortcutMenuPage)
+    {
+        app_ui_refresh_shortcut_items();
+    }
+    else if ((page == &ShortcutPresetPage1) ||
+             (page == &ShortcutPresetPage2) ||
+             (page == &ShortcutPresetPage3) ||
+             (page == &ShortcutPresetPage4))
     {
         app_ui_refresh_shortcut_preset_items();
-        app_ui_refresh_shortcut_items();
-        app_ui_refresh_pc_items();
     }
 
     app_ui_update_pc_delta();
@@ -817,10 +810,10 @@ static void app_ui_refresh_shortcut_preset_items(void)
             preset_name = "无操作";
         }
 
-        rt_snprintf(s_shortcut_preset_lines[preset],
-                    sizeof(s_shortcut_preset_lines[preset]),
-                    "%s",
-                    preset_name);
+        rt_strncpy(s_shortcut_preset_lines[preset],
+                   preset_name,
+                   sizeof(s_shortcut_preset_lines[preset]) - 1U);
+        s_shortcut_preset_lines[preset][sizeof(s_shortcut_preset_lines[preset]) - 1U] = '\0';
         ShortcutPresetMenuItems[preset].General_item_text = s_shortcut_preset_lines[preset];
     }
 }
