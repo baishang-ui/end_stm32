@@ -5,6 +5,7 @@
 */
 #include "stm32f4xx_hal.h"
 #include "oled_hal_display.h"
+#include "oled_graphics.h"
 
 
 
@@ -12,6 +13,13 @@ uint8_t OLED_DisplayBuf[64 / 8][128]; // 显存
 bool OLED_ColorMode = true;
 bool spi_busy = 0;
 static SPI_HandleTypeDef s_oled_hspi1;
+static uint8_t s_oled_last_frame[64 / 8][128];
+static bool s_oled_last_frame_valid = false;
+
+static void OLED_InvalidateUpdateCache(void)
+{
+	s_oled_last_frame_valid = false;
+}
 
 static void OLED_SPI1_Init(void)
 {
@@ -231,6 +239,7 @@ void OLED_DisplayTurn(uint8_t i)
 		OLED_Write_CMD(0xA0);
 	}
 	OLED_Write_CMD(0xAF); // 点亮屏幕
+	OLED_InvalidateUpdateCache();
 }
 
 // 开启OLED显示
@@ -275,14 +284,42 @@ void OLED_SetCursor(uint8_t Page, uint8_t X)
 void OLED_Update(void)
 {
 	uint8_t j;
+
 	/*遍历每一页*/
 	for (j = 0; j < 8; j++)
 	{
-		/*设置光标位置为每一页的第一列*/
-		OLED_SetCursor(j, 0);
-		/*连续写入128个数据，将显存数组的数据写入到OLED硬件*/
-		OLED_WriteDataArr(OLED_DisplayBuf[j], 128);
+		uint8_t start = 0;
+		uint8_t end = OLED_WIDTH - 1;
+
+		if (s_oled_last_frame_valid && (memcmp(OLED_DisplayBuf[j], s_oled_last_frame[j], OLED_WIDTH) == 0))
+		{
+			continue;
+		}
+
+		if (s_oled_last_frame_valid)
+		{
+			while ((start < OLED_WIDTH) && (OLED_DisplayBuf[j][start] == s_oled_last_frame[j][start]))
+			{
+				start++;
+			}
+
+			if (start >= OLED_WIDTH)
+			{
+				continue;
+			}
+
+			while ((end > start) && (OLED_DisplayBuf[j][end] == s_oled_last_frame[j][end]))
+			{
+				end--;
+			}
+		}
+
+		OLED_SetCursor(j, start);
+		OLED_WriteDataArr(&OLED_DisplayBuf[j][start], (uint8_t)(end - start + 1U));
+		memcpy(s_oled_last_frame[j], OLED_DisplayBuf[j], OLED_WIDTH);
 	}
+
+	s_oled_last_frame_valid = true;
 }
 
 /**
@@ -329,6 +366,10 @@ void OLED_UpdateArea(uint8_t X, uint8_t Y, uint8_t Width, uint8_t Height)
 		OLED_SetCursor(j, X);
 		/*连续写入Width个数据，将显存数组的数据写入到OLED硬件*/
 		OLED_WriteDataArr(&OLED_DisplayBuf[j][X], Width);
+		if (s_oled_last_frame_valid)
+		{
+			memcpy(&s_oled_last_frame[j][X], &OLED_DisplayBuf[j][X], Width);
+		}
 	}
 }
 
@@ -410,6 +451,7 @@ void OLED_Init(void)
 
 	OLED_Brightness(-1); // 初始化亮度设置函数。设置为-1相当于设置为0
 	OLED_Clear();
+	OLED_InvalidateUpdateCache();
 	OLED_Write_CMD(0xAF); // Display ON
 	for (int i = 0; i < 1000; i++)
 	{

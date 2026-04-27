@@ -70,6 +70,12 @@ static rt_size_t s_visible_scan_count = 0U;
 static MenuPage *s_previous_page = RT_NULL;
 static bool s_smooth_animation_enabled = true;
 static bool s_wifi_scan_requested = false;
+static rt_tick_t s_last_dynamic_refresh_tick = 0U;
+static float s_cached_page_motion_speed = -1.0f;
+static float s_cached_text_scroll_speed = -1.0f;
+static rt_int16_t s_cached_font_size = -1;
+static rt_int16_t s_cached_fade_step_ms = -1;
+static rt_bool_t s_cached_use_smooth_curve = 2;
 static rt_int16_t s_pc_volume_delta = 0;
 static rt_int16_t s_pc_brightness_delta = 0;
 static rt_int16_t s_pc_volume_shadow = 0;
@@ -96,6 +102,12 @@ static void app_ui_refresh_status_items(void);
 static void app_ui_refresh_scan_items(void);
 static void app_ui_refresh_todo_items(void);
 static void app_ui_update_pc_delta(void);
+static bool app_ui_float_changed(float lhs, float rhs);
+static bool app_ui_runtime_changed(void);
+static void app_ui_commit_runtime_cache(void);
+static bool app_ui_is_wifi_page(MenuPage *page);
+static bool app_ui_is_pc_page(MenuPage *page);
+static void app_ui_refresh_dynamic_content(bool force_refresh);
 
 static void app_ui_copy_visible_text(char *dst, rt_size_t dst_len, const char *src)
 {
@@ -173,6 +185,95 @@ static void app_ui_clamp_cursor(MenuPage *page, rt_uint32_t count)
     {
         page->_Slot = (MenuID)(count - 1U);
     }
+}
+
+static bool app_ui_float_changed(float lhs, float rhs)
+{
+    float delta = lhs - rhs;
+
+    if (delta < 0.0f)
+    {
+        delta = -delta;
+    }
+
+    return (delta > 0.001f);
+}
+
+static bool app_ui_runtime_changed(void)
+{
+    return app_ui_float_changed(s_cached_page_motion_speed, AppUI_PageMotionSpeed) ||
+           app_ui_float_changed(s_cached_text_scroll_speed, AppUI_TextScrollSpeed) ||
+           (s_cached_font_size != AppUI_FontSize) ||
+           (s_cached_fade_step_ms != AppUI_FadeStepMs) ||
+           (s_cached_use_smooth_curve != (s_smooth_animation_enabled ? RT_TRUE : RT_FALSE));
+}
+
+static void app_ui_commit_runtime_cache(void)
+{
+    s_cached_page_motion_speed = AppUI_PageMotionSpeed;
+    s_cached_text_scroll_speed = AppUI_TextScrollSpeed;
+    s_cached_font_size = AppUI_FontSize;
+    s_cached_fade_step_ms = AppUI_FadeStepMs;
+    s_cached_use_smooth_curve = s_smooth_animation_enabled ? RT_TRUE : RT_FALSE;
+}
+
+static bool app_ui_is_wifi_page(MenuPage *page)
+{
+    return (page == &WiFiMenuPage) ||
+           (page == &WiFiInfoMenuPage) ||
+           (page == &WiFiScanMenuPage);
+}
+
+static bool app_ui_is_pc_page(MenuPage *page)
+{
+    return (page == &PCControlMenuPage) ||
+           (page == &PCShortcutMenuPage) ||
+           (page == &ShortcutPresetPage1) ||
+           (page == &ShortcutPresetPage2) ||
+           (page == &ShortcutPresetPage3) ||
+           (page == &ShortcutPresetPage4);
+}
+
+static void app_ui_refresh_dynamic_content(bool force_refresh)
+{
+    MenuPage *page = CurrentMenuPage;
+    rt_tick_t now_tick = rt_tick_get();
+
+    if (!force_refresh)
+    {
+        if ((now_tick - s_last_dynamic_refresh_tick) < rt_tick_from_millisecond(50))
+        {
+            app_ui_update_pc_delta();
+            return;
+        }
+    }
+
+    s_last_dynamic_refresh_tick = now_tick;
+
+    if (force_refresh || (page == &TodoMenuPage))
+    {
+        app_ui_refresh_todo_items();
+    }
+
+    if (force_refresh || app_ui_is_wifi_page(page))
+    {
+        app_ui_refresh_wifi_info_items();
+        app_ui_refresh_scan_items();
+    }
+
+    if (force_refresh || (page == &StatusMenuPage))
+    {
+        app_ui_refresh_status_items();
+    }
+
+    if (force_refresh || app_ui_is_pc_page(page))
+    {
+        app_ui_refresh_shortcut_preset_items();
+        app_ui_refresh_shortcut_items();
+        app_ui_refresh_pc_items();
+    }
+
+    app_ui_update_pc_delta();
 }
 
 static const char *app_ui_get_wifi_state_text(const esp01s_status_t *status)
@@ -1111,6 +1212,8 @@ MenuPage SettingsMenuPage = {
 
 void app_ui_refresh_pages(void)
 {
+    bool page_changed;
+    bool runtime_changed;
     MenuPage *runtime_pages[] = {
         &MainMenuPage,
         &TodoMenuPage,
@@ -1127,17 +1230,17 @@ void app_ui_refresh_pages(void)
         &SettingsMenuPage,
     };
 
-    AppUI_UseSmoothCurve = s_smooth_animation_enabled ? RT_TRUE : RT_FALSE;
-    app_ui_apply_runtime_to_pages(runtime_pages, sizeof(runtime_pages) / sizeof(runtime_pages[0]));
+    page_changed = (CurrentMenuPage != s_previous_page);
+    runtime_changed = app_ui_runtime_changed();
 
-    app_ui_refresh_todo_items();
-    app_ui_refresh_wifi_info_items();
-    app_ui_refresh_scan_items();
-    app_ui_refresh_status_items();
-    app_ui_refresh_shortcut_preset_items();
-    app_ui_refresh_shortcut_items();
-    app_ui_update_pc_delta();
-    app_ui_refresh_pc_items();
+    AppUI_UseSmoothCurve = s_smooth_animation_enabled ? RT_TRUE : RT_FALSE;
+    if (runtime_changed)
+    {
+        app_ui_apply_runtime_to_pages(runtime_pages, sizeof(runtime_pages) / sizeof(runtime_pages[0]));
+        app_ui_commit_runtime_cache();
+    }
+
+    app_ui_refresh_dynamic_content(runtime_changed || page_changed);
 
     if (CurrentMenuPage == &MainMenuPage)
     {

@@ -159,14 +159,7 @@ uint8_t OLED_IsInAngle(int16_t X, int16_t Y, int16_t StartAngle, int16_t EndAngl
   */
 void OLED_Clear(void)
 {
-	int16_t i, j;
-	for (j = 0; j < OLED_HEIGHT/8; j ++)				//遍历8页
-	{
-		for (i = 0; i < OLED_WIDTH; i ++)			//遍历OLED_WIDTH列
-		{
-			OLED_DisplayBuf[j][i] = 0x00;	//将显存数组数据全部清零
-		}
-	}
+	memset(OLED_DisplayBuf, 0x00, sizeof(OLED_DisplayBuf));
 }
 /**
   * 函    数：将OLED显存数组部分清零
