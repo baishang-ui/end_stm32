@@ -874,6 +874,12 @@ MenuItem ShortcutPresetMenuItems[DEVICE_USB_SHORTCUT_PRESET_COUNT + 1] = {
     { .General_item_text = "截图工具", .General_callback = app_ui_apply_shortcut_preset_selection, .General_SubMenuPage = RT_NULL },
     { .General_item_text = "系统设置", .General_callback = app_ui_apply_shortcut_preset_selection, .General_SubMenuPage = RT_NULL },
     { .General_item_text = "运行窗口", .General_callback = app_ui_apply_shortcut_preset_selection, .General_SubMenuPage = RT_NULL },
+    { .General_item_text = "复制", .General_callback = app_ui_apply_shortcut_preset_selection, .General_SubMenuPage = RT_NULL },
+    { .General_item_text = "粘贴", .General_callback = app_ui_apply_shortcut_preset_selection, .General_SubMenuPage = RT_NULL },
+    { .General_item_text = "剪切", .General_callback = app_ui_apply_shortcut_preset_selection, .General_SubMenuPage = RT_NULL },
+    { .General_item_text = "全选", .General_callback = app_ui_apply_shortcut_preset_selection, .General_SubMenuPage = RT_NULL },
+    { .General_item_text = "撤销", .General_callback = app_ui_apply_shortcut_preset_selection, .General_SubMenuPage = RT_NULL },
+    { .General_item_text = "重做", .General_callback = app_ui_apply_shortcut_preset_selection, .General_SubMenuPage = RT_NULL },
     { .General_item_text = RT_NULL },
 };
 

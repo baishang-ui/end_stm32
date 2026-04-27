@@ -35,12 +35,18 @@
 #define HID_KBD_MOD_LALT            0x04U
 #define HID_KBD_MOD_LGUI            0x08U
 
+#define HID_KBD_KEY_A               0x04U
+#define HID_KBD_KEY_C               0x06U
 #define HID_KBD_KEY_D               0x07U
 #define HID_KBD_KEY_E               0x08U
 #define HID_KBD_KEY_I               0x0CU
 #define HID_KBD_KEY_L               0x0FU
 #define HID_KBD_KEY_R               0x15U
 #define HID_KBD_KEY_S               0x16U
+#define HID_KBD_KEY_V               0x19U
+#define HID_KBD_KEY_X               0x1BU
+#define HID_KBD_KEY_Y               0x1CU
+#define HID_KBD_KEY_Z               0x1DU
 #define HID_KBD_KEY_ESCAPE          0x29U
 #define HID_KBD_KEY_TAB             0x2BU
 
@@ -108,6 +114,12 @@ static const device_usb_shortcut_preset_entry_t s_usb_shortcut_presets[DEVICE_US
     { DEVICE_USB_SHORTCUT_PRESET_SNIP_TOOL, "\xE6\x88\xAA\xE5\x9B\xBE\xE5\xB7\xA5\xE5\x85\xB7", { (rt_uint8_t)(HID_KBD_MOD_LGUI | HID_KBD_MOD_LSHIFT), 1U, { HID_KBD_KEY_S, 0U, 0U, 0U, 0U, 0U } } },
     { DEVICE_USB_SHORTCUT_PRESET_SYSTEM_SETTINGS, "\xE7\xB3\xBB\xE7\xBB\x9F\xE8\xAE\xBE\xE7\xBD\xAE", { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_I, 0U, 0U, 0U, 0U, 0U } } },
     { DEVICE_USB_SHORTCUT_PRESET_RUN_DIALOG, "\xE8\xBF\x90\xE8\xA1\x8C\xE7\xAA\x97\xE5\x8F\xA3", { HID_KBD_MOD_LGUI, 1U, { HID_KBD_KEY_R, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_COPY, "\xE5\xA4\x8D\xE5\x88\xB6", { HID_KBD_MOD_LCTRL, 1U, { HID_KBD_KEY_C, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_PASTE, "\xE7\xB2\x98\xE8\xB4\xB4", { HID_KBD_MOD_LCTRL, 1U, { HID_KBD_KEY_V, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_CUT, "\xE5\x89\xAA\xE5\x88\x87", { HID_KBD_MOD_LCTRL, 1U, { HID_KBD_KEY_X, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_SELECT_ALL, "\xE5\x85\xA8\xE9\x80\x89", { HID_KBD_MOD_LCTRL, 1U, { HID_KBD_KEY_A, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_UNDO, "\xE6\x92\xA4\xE9\x94\x80", { HID_KBD_MOD_LCTRL, 1U, { HID_KBD_KEY_Z, 0U, 0U, 0U, 0U, 0U } } },
+    { DEVICE_USB_SHORTCUT_PRESET_REDO, "\xE9\x87\x8D\xE5\x81\x9A", { HID_KBD_MOD_LCTRL, 1U, { HID_KBD_KEY_Y, 0U, 0U, 0U, 0U, 0U } } },
 };
 
 static struct rt_messagequeue s_net_mq;
