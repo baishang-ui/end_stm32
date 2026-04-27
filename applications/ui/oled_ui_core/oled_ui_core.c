@@ -22,6 +22,14 @@ int16_t OLED_UI_Brightness = 100;                                   //全局变�
 OLED_UI_WindowSustainCounter OLED_SustainCounter = {0,false};       //用于存储窗口持续时间的结构体
 int tmpi=0;                                                         //Gif动画缓速播放temp值
 static rt_uint32_t s_fps_last_sample_ms = 0U;
+/* 局部刷新状态：
+ * ready 表示已经完成过一次整屏基线刷新；
+ * pending 表示当前帧已经累计出待刷新的区域；
+ * force_full_refresh 用于在切页/渐隐等复杂场景下强制回退整屏刷新。 */
+static bool s_ui_partial_refresh_ready = false;
+static bool s_ui_refresh_area_pending = false;
+static bool s_ui_force_full_refresh = true;
+static OLED_Area s_ui_refresh_area = {0};
 
 /***********************************************************************************************/
 /***************************这些变量用于存储需要绑定动画的控件的参数*******************************/
@@ -40,6 +48,246 @@ oled_ui_anim_distance_t OLED_UI_ProbWidth;
 oled_ui_anim_point_t OLED_UI_PageStartPoint ;
 // OLED_UI_LineStep是用于存储行间距的结构体，控制行间距的变化
 oled_ui_anim_distance_t OLED_UI_LineStep;
+
+static float oled_ui_absf(float value);
+
+/**
+ * @brief 对浮点坐标做向下取整，保证左上边界不会漏掉像素
+ * @param value 待转换的浮点值
+ * @return 向下取整后的整数坐标
+ */
+static int16_t oled_ui_floor_to_int(float value){
+    int16_t truncated = (int16_t)value;
+
+    if (value < (float)truncated){
+        truncated--;
+    }
+
+    return truncated;
+}
+
+/**
+ * @brief 对浮点坐标做向上取整，保证右下边界不会裁掉像素
+ * @param value 待转换的浮点值
+ * @return 向上取整后的整数坐标
+ */
+static int16_t oled_ui_ceil_to_int(float value){
+    int16_t truncated = (int16_t)value;
+
+    if (value > (float)truncated){
+        truncated++;
+    }
+
+    return truncated;
+}
+
+/**
+ * @brief 判断一个区域动画是否仍在运动
+ * @param area 待检测的动画区域
+ * @return true 表示当前值与目标值仍有明显偏差，false 表示基本稳定
+ */
+static bool oled_ui_area_is_animating(const oled_ui_anim_area_t *area){
+    if (area == NULL){
+        return false;
+    }
+
+    return (oled_ui_absf(area->CurrentArea.X - area->TargetArea.X) > 0.05f) ||
+           (oled_ui_absf(area->CurrentArea.Y - area->TargetArea.Y) > 0.05f) ||
+           (oled_ui_absf(area->CurrentArea.Width - area->TargetArea.Width) > 0.05f) ||
+           (oled_ui_absf(area->CurrentArea.Height - area->TargetArea.Height) > 0.05f);
+}
+
+/**
+ * @brief 判断一个点动画是否仍在运动
+ * @param point 待检测的动画点
+ * @return true 表示点位仍在变化，false 表示已经基本到位
+ */
+static bool oled_ui_point_is_animating(const oled_ui_anim_point_t *point){
+    if (point == NULL){
+        return false;
+    }
+
+    return (oled_ui_absf(point->CurrentPoint.X - point->TargetPoint.X) > 0.05f) ||
+           (oled_ui_absf(point->CurrentPoint.Y - point->TargetPoint.Y) > 0.05f);
+}
+
+/**
+ * @brief 判断一个距离动画是否仍在运动
+ * @param distance 待检测的动画距离对象
+ * @return true 表示距离值仍在变化，false 表示已经基本到位
+ */
+static bool oled_ui_distance_is_animating(const oled_ui_anim_distance_t *distance){
+    if (distance == NULL){
+        return false;
+    }
+
+    return oled_ui_absf(distance->CurrentDistance - distance->TargetDistance) > 0.05f;
+}
+
+/**
+ * @brief 将一个矩形区域并入当前帧的刷新脏区
+ * @param x 区域左上角 X
+ * @param y 区域左上角 Y
+ * @param width 区域宽度
+ * @param height 区域高度
+ * @return 无
+ * @note 该函数会自动做屏幕边界裁剪，并与已有脏区做并集。
+ */
+static void oled_ui_union_refresh_area_internal(int16_t x, int16_t y, int16_t width, int16_t height){
+    int16_t left;
+    int16_t top;
+    int16_t right;
+    int16_t bottom;
+    int16_t current_right;
+    int16_t current_bottom;
+
+    if ((width <= 0) || (height <= 0)){
+        return;
+    }
+
+    left = x;
+    top = y;
+    right = x + width - 1;
+    bottom = y + height - 1;
+
+    if (right < 0 || bottom < 0 || left >= OLED_WIDTH || top >= OLED_HEIGHT){
+        return;
+    }
+
+    if (left < 0){
+        left = 0;
+    }
+    if (top < 0){
+        top = 0;
+    }
+    if (right >= OLED_WIDTH){
+        right = OLED_WIDTH - 1;
+    }
+    if (bottom >= OLED_HEIGHT){
+        bottom = OLED_HEIGHT - 1;
+    }
+
+    if (left > right || top > bottom){
+        return;
+    }
+
+    if (!s_ui_refresh_area_pending){
+        s_ui_refresh_area.X = (float)left;
+        s_ui_refresh_area.Y = (float)top;
+        s_ui_refresh_area.Width = (float)(right - left + 1);
+        s_ui_refresh_area.Height = (float)(bottom - top + 1);
+        s_ui_refresh_area_pending = true;
+        return;
+    }
+
+    current_right = (int16_t)(s_ui_refresh_area.X + s_ui_refresh_area.Width - 1);
+    current_bottom = (int16_t)(s_ui_refresh_area.Y + s_ui_refresh_area.Height - 1);
+
+    if (left < (int16_t)s_ui_refresh_area.X){
+        s_ui_refresh_area.X = (float)left;
+    }
+    if (top < (int16_t)s_ui_refresh_area.Y){
+        s_ui_refresh_area.Y = (float)top;
+    }
+    if (right > current_right){
+        current_right = right;
+    }
+    if (bottom > current_bottom){
+        current_bottom = bottom;
+    }
+
+    s_ui_refresh_area.Width = (float)(current_right - (int16_t)s_ui_refresh_area.X + 1);
+    s_ui_refresh_area.Height = (float)(current_bottom - (int16_t)s_ui_refresh_area.Y + 1);
+}
+
+/**
+ * @brief 将 OLED_Area 结构描述的区域并入当前帧脏区
+ * @param area 待合并的区域
+ * @param padding 为了覆盖边框/抗锯齿留出的额外边距
+ * @return 无
+ */
+static void oled_ui_union_refresh_oled_area(const OLED_Area *area, int16_t padding){
+    int16_t x;
+    int16_t y;
+    int16_t width;
+    int16_t height;
+
+    if (area == NULL){
+        return;
+    }
+
+    x = oled_ui_floor_to_int(area->X) - padding;
+    y = oled_ui_floor_to_int(area->Y) - padding;
+    width = oled_ui_ceil_to_int(area->Width) + padding * 2;
+    height = oled_ui_ceil_to_int(area->Height) + padding * 2;
+    oled_ui_union_refresh_area_internal(x, y, width, height);
+}
+
+/**
+ * @brief 判断当前页面是否有文本滚动动画在执行
+ * @param page 待检测的页面
+ * @return true 表示至少存在一项文本仍在滚动，false 表示所有文本已静止
+ */
+static bool oled_ui_page_text_animating(MenuPage *page){
+    MenuID index;
+    MenuID count;
+
+    if (page == NULL){
+        return false;
+    }
+
+    count = oled_ui_get_menu_item_count(page->General_MenuItems);
+    for (index = 0; index < count; index++){
+        if (oled_ui_absf(page->General_MenuItems[index]._LineSlip) > 0.05f){
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * @brief 请求刷新一块指定区域
+ * @param x 区域左上角 X
+ * @param y 区域左上角 Y
+ * @param width 区域宽度
+ * @param height 区域高度
+ * @return 无
+ */
+void oled_ui_request_refresh_area(int16_t x, int16_t y, int16_t width, int16_t height){
+    oled_ui_union_refresh_area_internal(x, y, width, height);
+}
+
+/**
+ * @brief 请求刷新当前页面主要显示区域
+ * @param 无
+ * @return 无
+ * @note 列表页只刷新列表区域，磁贴页暂时直接请求整屏，避免漏刷图标动画。
+ */
+void oled_ui_request_current_page_refresh(void){
+    if (CurrentMenuPage == NULL){
+        oled_ui_request_full_refresh();
+        return;
+    }
+
+    if (CurrentMenuPage->General_MenuType == MENU_TYPE_LIST){
+        oled_ui_request_refresh_area((int16_t)CurrentMenuPage->List_MenuArea.X,
+                                     (int16_t)CurrentMenuPage->List_MenuArea.Y,
+                                     (int16_t)CurrentMenuPage->List_MenuArea.Width,
+                                     (int16_t)CurrentMenuPage->List_MenuArea.Height);
+    }else{
+        oled_ui_request_refresh_area(0, 0, OLED_WIDTH, OLED_HEIGHT);
+    }
+}
+
+/**
+ * @brief 将下一帧刷新策略切换为整屏刷新
+ * @param 无
+ * @return 无
+ */
+void oled_ui_request_full_refresh(void){
+    s_ui_force_full_refresh = true;
+}
 
 
 
@@ -573,6 +821,9 @@ void oled_ui_init(MenuPage* Page){
     oled_ui_timer_init();
     oled_ui_key_init();
     oled_ui_encoder_init();
+    s_ui_partial_refresh_ready = false;
+    s_ui_refresh_area_pending = false;
+    s_ui_force_full_refresh = true;
 
     //设置当前页面的结构体指针
     CurrentMenuPage = Page; //设置当前页面的结构体指针
@@ -1804,6 +2055,95 @@ void oled_ui_move_menu_elements(void){
 }
 
 /**
+ * @brief 根据当前 UI 状态选择局部刷新或整屏刷新
+ * @param 无
+ * @return 无
+ * @note 该函数会综合页面动画、文本滚动、弹窗显示和 FPS 角标，尽量只刷新必要区域；
+ *       在切页、渐隐或首次绘制等不适合裁剪的时机会自动回退到整屏刷新。
+ */
+static void oled_ui_flush_current_frame(void){
+    static MenuPage *s_last_flushed_page = NULL;
+    static bool s_last_fps_visible = false;
+    static bool s_last_window_visible = false;
+    static OLED_Area s_last_window_area = {0};
+    bool force_full_refresh;
+    bool window_visible;
+    bool window_animating;
+    bool window_text_animating;
+    bool menu_dynamic;
+    bool page_text_animating;
+
+    /* 首帧、强制回退或渐隐中的场景都使用整屏刷新，避免残影。 */
+    force_full_refresh = s_ui_force_full_refresh || !s_ui_partial_refresh_ready || !oled_ui_is_fade_idle();
+
+    if (CurrentMenuPage == NULL){
+        force_full_refresh = true;
+    }else if (CurrentMenuPage->General_MenuType == MENU_TYPE_TILES){
+        oled_ui_request_current_page_refresh();
+    }
+
+    menu_dynamic = oled_ui_point_is_animating(&OLED_UI_PageStartPoint) ||
+                   oled_ui_distance_is_animating(&OLED_UI_LineStep) ||
+                   oled_ui_distance_is_animating(&OLED_UI_ScrollBarHeight) ||
+                   oled_ui_area_is_animating(&OLED_UI_MenuFrame) ||
+                   oled_ui_area_is_animating(&OLED_UI_Cursor);
+    page_text_animating = oled_ui_page_text_animating(CurrentMenuPage);
+
+    /* 页面切换后至少完整刷新一次当前页主区域，防止旧页残留。 */
+    if (CurrentMenuPage != s_last_flushed_page){
+        oled_ui_request_current_page_refresh();
+    }
+
+    /* 菜单整体动画或文本滚动时，持续把当前页主区域并入脏区。 */
+    if (menu_dynamic || page_text_animating){
+        oled_ui_request_current_page_refresh();
+    }
+
+    /* FPS 角标是固定位置的小区域，可以单独局部刷新。 */
+    if (OLED_UI_ShowFps || s_last_fps_visible){
+        oled_ui_request_refresh_area(92, 0, 36, 12);
+    }
+
+    window_animating = oled_ui_area_is_animating(&OLED_UI_Window);
+    window_text_animating = (CurrentWindow != NULL) && (oled_ui_absf(CurrentWindow->_LineSlip) > 0.05f);
+    window_visible = (CurrentWindow != NULL) || !oled_ui_window_is_hidden() || window_animating;
+    /* 窗口打开、运动或内部文本滚动时，刷新当前窗口区域。 */
+    if (window_visible && (window_animating || window_text_animating || !s_last_window_visible)){
+        oled_ui_union_refresh_oled_area(&OLED_UI_Window.CurrentArea, 2);
+    }
+    /* 窗口收回时把上一帧窗口区域也并进来，用于清掉残影。 */
+    if (s_last_window_visible && (!window_visible || window_animating || window_text_animating)){
+        oled_ui_union_refresh_oled_area(&s_last_window_area, 2);
+    }
+
+    if (force_full_refresh){
+        OLED_Update();
+        s_ui_partial_refresh_ready = true;
+    }else if (s_ui_refresh_area_pending){
+        /* 普通稳定场景优先走局部刷新，减小 SPI 传输量。 */
+        OLED_UpdateArea((uint8_t)s_ui_refresh_area.X,
+                        (uint8_t)s_ui_refresh_area.Y,
+                        (uint8_t)s_ui_refresh_area.Width,
+                        (uint8_t)s_ui_refresh_area.Height);
+        s_ui_partial_refresh_ready = true;
+    }
+
+    s_ui_refresh_area_pending = false;
+    s_ui_force_full_refresh = false;
+    s_last_flushed_page = CurrentMenuPage;
+    s_last_fps_visible = OLED_UI_ShowFps;
+    s_last_window_visible = window_visible;
+    if (window_visible){
+        s_last_window_area = OLED_UI_Window.CurrentArea;
+    }else{
+        s_last_window_area.X = 0.0f;
+        s_last_window_area.Y = 0.0f;
+        s_last_window_area.Width = 0.0f;
+        s_last_window_area.Height = 0.0f;
+    }
+}
+
+/**
  * @brief OLED_UI的主循环函数
  * @param 无
  * @note 该函数需要放在主循环中调用，以便实现UI的刷新
@@ -1830,8 +2170,8 @@ void oled_ui_main_loop(void){
 
     //显示FPS
     oled_ui_render_fps();
-    //刷屏
-    OLED_Update();
+    //按当前页/弹窗/FPS的局部区域刷新，必要时自动回退整屏
+    oled_ui_flush_current_frame();
 
 }
 
@@ -1861,6 +2201,7 @@ void oled_ui_interrupt_handler(void){
             if(IncreaseID.Unsafe != 0){
                 //窗口计数值清零
                 OLED_SustainCounter.count = 0;
+                oled_ui_union_refresh_oled_area(&OLED_UI_Window.CurrentArea, 2);
             }
             //如果窗口有数据
             int8_t DataStyle = oled_ui_get_window_data_style(CurrentWindow->Prob_Data_Int,CurrentWindow->Prob_Data_Float);

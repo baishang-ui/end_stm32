@@ -215,10 +215,21 @@ static void app_ui_commit_runtime_cache(void)
     s_cached_use_smooth_curve = s_smooth_animation_enabled ? RT_TRUE : RT_FALSE;
 }
 
+/**
+ * @brief 按当前可见页面刷新动态文本内容
+ * @param force_refresh true 表示忽略节流立即刷新，false 表示按周期节流刷新
+ * @return 无
+ * @note 该函数只更新当前正在看的页面，避免每一帧重建所有二级/三级页面文本。
+ */
+/* Refresh dynamic text only for the currently visible page.
+ * force_refresh=true bypasses throttling.
+ * force_refresh=false keeps the normal timed refresh cadence.
+ * Return: none. */
 static void app_ui_refresh_dynamic_content(bool force_refresh)
 {
     MenuPage *page = CurrentMenuPage;
     rt_tick_t now_tick = rt_tick_get();
+    bool content_updated = false;
 
     if (!force_refresh)
     {
@@ -234,29 +245,35 @@ static void app_ui_refresh_dynamic_content(bool force_refresh)
     if (page == &TodoMenuPage)
     {
         app_ui_refresh_todo_items();
+        content_updated = true;
     }
 
     if (page == &WiFiInfoMenuPage)
     {
         app_ui_refresh_wifi_info_items();
+        content_updated = true;
     }
     else if (page == &WiFiScanMenuPage)
     {
         app_ui_refresh_scan_items();
+        content_updated = true;
     }
 
     if (page == &StatusMenuPage)
     {
         app_ui_refresh_status_items();
+        content_updated = true;
     }
 
     if (page == &PCControlMenuPage)
     {
         app_ui_refresh_pc_items();
+        content_updated = true;
     }
     else if (page == &PCShortcutMenuPage)
     {
         app_ui_refresh_shortcut_items();
+        content_updated = true;
     }
     else if ((page == &ShortcutPresetPage1) ||
              (page == &ShortcutPresetPage2) ||
@@ -264,9 +281,18 @@ static void app_ui_refresh_dynamic_content(bool force_refresh)
              (page == &ShortcutPresetPage4))
     {
         app_ui_refresh_shortcut_preset_items();
+        content_updated = true;
     }
 
     app_ui_update_pc_delta();
+
+    if (content_updated)
+    {
+        /* 动态文本被改写后，主动标记当前页为脏区，交给主循环做局部刷新。 */
+        /* Mark the current visible page dirty after text changes so the
+         * main loop can prefer a local refresh region. */
+        oled_ui_request_current_page_refresh();
+    }
 }
 
 static const char *app_ui_get_wifi_state_text(const esp01s_status_t *status)
@@ -889,6 +915,16 @@ static void app_ui_update_pc_delta(void)
     }
 }
 
+/**
+ * @brief 应用当前选中的快捷键预设
+ * @param 无
+ * @return 无
+ * @note 预设保存成功后会立刻返回上一级页面，减少一次手动返回操作。
+ */
+/* Apply the selected shortcut preset to the current shortcut slot.
+ * Parameters: none.
+ * Return: none.
+ * The page returns immediately after saving. */
 static void app_ui_apply_shortcut_preset_selection(void)
 {
     device_usb_shortcut_slot_t slot;
@@ -903,6 +939,9 @@ static void app_ui_apply_shortcut_preset_selection(void)
     preset = (device_usb_shortcut_preset_t)CurrentMenuPage->_ActiveMenuID;
     (void)device_usb_service_set_shortcut_preset(slot, preset);
     app_ui_refresh_shortcut_items();
+    /* 选中即生效，并自动返回按键配置页。 */
+    /* Save and go back in one action to remove the extra manual back step. */
+    oled_ui_back_menu_item();
 }
 
 MenuItem MainMenuItems[] = {
