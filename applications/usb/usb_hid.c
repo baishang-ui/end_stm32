@@ -24,6 +24,11 @@
 static rt_bool_t s_usb_init_done = RT_FALSE;
 static rt_uint8_t s_last_state = 0xFFU;
 
+/**
+ * @brief 在 USB 设备状态变化时打印一次 HID 状态日志。
+ * @param 无。
+ * @return 无。
+ */
 static void usb_hid_log_state(void)
 {
     if (hUsbDeviceFS.dev_state != s_last_state)
@@ -37,6 +42,11 @@ static void usb_hid_log_state(void)
     }
 }
 
+/**
+ * @brief 确保 CubeMX USB HID 协议栈已经初始化。
+ * @param 无。
+ * @return 成功返回 RT_EOK。
+ */
 static rt_err_t usb_hid_ensure_init(void)
 {
     if (s_usb_init_done == RT_FALSE)
@@ -50,6 +60,11 @@ static rt_err_t usb_hid_ensure_init(void)
     return RT_EOK;
 }
 
+/**
+ * @brief 判断 USB HID 是否已经完成主机枚举。
+ * @param 无。
+ * @return 已配置或挂起前状态为已配置时返回 RT_TRUE，否则返回 RT_FALSE。
+ */
 static rt_bool_t usb_hid_is_enumerated(void)
 {
     if (hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED)
@@ -66,6 +81,11 @@ static rt_bool_t usb_hid_is_enumerated(void)
     return RT_FALSE;
 }
 
+/**
+ * @brief 检查 Consumer 和 Keyboard 两个 HID 端点是否都处于空闲状态。
+ * @param 无。
+ * @return 端点空闲返回 RT_TRUE，否则返回 RT_FALSE。
+ */
 static rt_bool_t usb_hid_tx_idle(void)
 {
     USBD_CUSTOM_HID_HandleTypeDef *hhid;
@@ -80,6 +100,11 @@ static rt_bool_t usb_hid_tx_idle(void)
             (hhid->KeyboardState == CUSTOM_HID_IDLE)) ? RT_TRUE : RT_FALSE;
 }
 
+/**
+ * @brief 检查 USB HID 是否已经可用。
+ * @param 无。
+ * @return HID 已初始化且已枚举返回 RT_TRUE，否则返回 RT_FALSE。
+ */
 rt_bool_t usb_hid_is_ready(void)
 {
     (void)usb_hid_ensure_init();
@@ -87,12 +112,22 @@ rt_bool_t usb_hid_is_ready(void)
             (usb_hid_is_enumerated() != RT_FALSE)) ? RT_TRUE : RT_FALSE;
 }
 
+/**
+ * @brief 检查 USB HID 协议栈是否已经启动。
+ * @param 无。
+ * @return 已启动返回 RT_TRUE，否则返回 RT_FALSE。
+ */
 rt_bool_t usb_hid_is_started(void)
 {
     (void)usb_hid_ensure_init();
     return s_usb_init_done;
 }
 
+/**
+ * @brief 检查当前是否可以发送新的 HID 报告。
+ * @param 无。
+ * @return 已枚举且端点空闲返回 RT_TRUE，否则返回 RT_FALSE。
+ */
 rt_bool_t usb_hid_can_send(void)
 {
     if (usb_hid_is_ready() == RT_FALSE)
@@ -104,11 +139,22 @@ rt_bool_t usb_hid_can_send(void)
             (usb_hid_tx_idle() != RT_FALSE)) ? RT_TRUE : RT_FALSE;
 }
 
+/**
+ * @brief 获取 HID 报告发送节流使用的轮询间隔。
+ * @param 无。
+ * @return 轮询间隔，单位毫秒。
+ */
 rt_uint32_t usb_hid_get_polling_interval_ms(void)
 {
     return USB_HID_POLLING_INTERVAL_MS;
 }
 
+/**
+ * @brief 根据报告长度选择 Consumer 或 Keyboard 端点并发送报告。
+ * @param report HID 报告缓冲区。
+ * @param report_size HID 报告长度。
+ * @return 成功返回 RT_EOK，忙或参数无效时返回负数错误码。
+ */
 static rt_err_t usb_hid_send_report(const uint8_t *report, uint16_t report_size)
 {
     uint8_t status;
@@ -146,6 +192,11 @@ static rt_err_t usb_hid_send_report(const uint8_t *report, uint16_t report_size)
     return RT_EOK;
 }
 
+/**
+ * @brief 发送 Consumer Control HID 用法。
+ * @param usage Consumer Usage 编码，0 表示释放当前 Consumer 按键。
+ * @return 成功返回 RT_EOK，失败返回负数错误码。
+ */
 rt_err_t usb_hid_send_consumer_usage(rt_uint16_t usage)
 {
     uint8_t report[USB_CONSUMER_REPORT_SIZE];
@@ -182,6 +233,13 @@ rt_err_t usb_hid_send_consumer_usage(rt_uint16_t usage)
     return usb_hid_send_report(report, sizeof(report));
 }
 
+/**
+ * @brief 发送 Boot Keyboard HID 报告。
+ * @param modifier 键盘修饰键位图。
+ * @param keys HID 键值数组。
+ * @param key_count keys 中有效键值数量。
+ * @return 成功返回 RT_EOK，失败返回负数错误码。
+ */
 rt_err_t usb_hid_send_keyboard_report(rt_uint8_t modifier,
                                       const rt_uint8_t *keys,
                                       rt_uint8_t key_count)
@@ -203,6 +261,11 @@ rt_err_t usb_hid_send_keyboard_report(rt_uint8_t modifier,
     return usb_hid_send_report(report, sizeof(report));
 }
 
+/**
+ * @brief RT-Thread 应用初始化阶段的 USB HID 自动初始化入口。
+ * @param 无。
+ * @return 成功返回 RT_EOK。
+ */
 static int usb_hid_driver_init(void)
 {
     (void)usb_hid_ensure_init();

@@ -19,7 +19,7 @@
 #define DEVICE_USB_SHORTCUT_QUEUE_LIMIT     4U
 #define DEVICE_USB_BUTTON_DEBOUNCE_MS       18U
 
-/* External shortcut buttons: active-low, one side to GPIO and one side to GND. */
+/* 外部快捷键按键：低电平有效，一端接 GPIO，另一端接 GND。 */
 #define DEVICE_USB_SHORTCUT_PIN_1           GET_PIN(C, 0)
 #define DEVICE_USB_SHORTCUT_PIN_2           GET_PIN(C, 1)
 #define DEVICE_USB_SHORTCUT_PIN_3           GET_PIN(C, 2)
@@ -160,11 +160,22 @@ static rt_bool_t s_usb_shortcut_buttons_inited = RT_FALSE;
 static device_usb_release_t s_usb_release_pending = DEVICE_USB_RELEASE_NONE;
 static rt_tick_t s_usb_last_report_tick = 0U;
 
+/**
+ * @brief 计算 int16_t 数值的绝对值，并以 uint16_t 返回。
+ * @param value 输入的有符号数值。
+ * @return value 的绝对值。
+ */
 static rt_uint16_t device_abs_i16(rt_int16_t value)
 {
     return (value < 0) ? (rt_uint16_t)(-((rt_int32_t)value)) : (rt_uint16_t)value;
 }
 
+/**
+ * @brief 将指定步数累加到 USB 待发送队列，并限制在安全范围内。
+ * @param pending 待累加的队列计数指针。
+ * @param steps 需要累加的步数，可以为负数。
+ * @return 无。
+ */
 static void device_usb_accumulate_steps(rt_int16_t *pending, rt_int32_t steps)
 {
     rt_int32_t total;
@@ -187,6 +198,12 @@ static void device_usb_accumulate_steps(rt_int16_t *pending, rt_int32_t steps)
     *pending = (rt_int16_t)total;
 }
 
+/**
+ * @brief 将 UI 数值差值转换为 HID 调节步数并入队。
+ * @param pending 待累加的队列计数指针。
+ * @param delta UI 目标值与影子值之间的差值。
+ * @return 无。
+ */
 static void device_usb_queue_steps(rt_int16_t *pending, rt_int32_t delta)
 {
     rt_int32_t steps;
@@ -205,6 +222,13 @@ static void device_usb_queue_steps(rt_int16_t *pending, rt_int32_t delta)
     device_usb_accumulate_steps(pending, steps);
 }
 
+/**
+ * @brief 初始化一个外部快捷键按键的消抖状态。
+ * @param button 按键状态对象。
+ * @param pin GPIO 引脚编号。
+ * @param debounce_ticks 消抖时间，单位为 RT-Thread tick。
+ * @return 无。
+ */
 static void device_usb_button_init(device_usb_button_t *button,
                                    rt_base_t pin,
                                    rt_tick_t debounce_ticks)
@@ -217,6 +241,11 @@ static void device_usb_button_init(device_usb_button_t *button,
     button->change_tick = rt_tick_get();
 }
 
+/**
+ * @brief 轮询一个外部快捷键按键，并在稳定按下边沿出现时返回事件。
+ * @param button 按键状态对象。
+ * @return 检测到一次有效按下返回 RT_TRUE，否则返回 RT_FALSE。
+ */
 static rt_bool_t device_usb_button_poll_press(device_usb_button_t *button)
 {
     rt_uint8_t raw_level;
@@ -250,6 +279,11 @@ static rt_bool_t device_usb_button_poll_press(device_usb_button_t *button)
     return RT_FALSE;
 }
 
+/**
+ * @brief 初始化全部外部快捷键按键。
+ * @param 无。
+ * @return 无。
+ */
 static void device_usb_shortcut_buttons_init(void)
 {
     rt_uint32_t index;
@@ -271,6 +305,11 @@ static void device_usb_shortcut_buttons_init(void)
     s_usb_shortcut_buttons_inited = RT_TRUE;
 }
 
+/**
+ * @brief 在 USB 锁保护下统计待发送快捷键数量。
+ * @param 无。
+ * @return 当前积压的快捷键动作数量。
+ */
 static rt_uint16_t device_usb_count_shortcuts_locked(void)
 {
     rt_uint32_t index;
@@ -284,11 +323,21 @@ static rt_uint16_t device_usb_count_shortcuts_locked(void)
     return total;
 }
 
+/**
+ * @brief 在 USB 锁保护下清空待发送快捷键队列。
+ * @param 无。
+ * @return 无。
+ */
 static void device_usb_clear_shortcuts_locked(void)
 {
     memset(s_usb_shortcut_pending, 0, sizeof(s_usb_shortcut_pending));
 }
 
+/**
+ * @brief 根据预设编号获取快捷键预设表项。
+ * @param preset 快捷键预设编号。
+ * @return 有效时返回预设表项指针，无效时返回 RT_NULL。
+ */
 static const device_usb_shortcut_preset_entry_t *device_usb_get_preset_entry(device_usb_shortcut_preset_t preset)
 {
     if (((rt_uint32_t)preset) >= DEVICE_USB_SHORTCUT_PRESET_COUNT)
@@ -299,6 +348,11 @@ static const device_usb_shortcut_preset_entry_t *device_usb_get_preset_entry(dev
     return &s_usb_shortcut_presets[preset];
 }
 
+/**
+ * @brief 在 USB 锁保护下读取槽位绑定的快捷键预设。
+ * @param slot 快捷键槽位。
+ * @return 槽位当前绑定的快捷键预设。
+ */
 static device_usb_shortcut_preset_t device_usb_get_slot_preset_locked(device_usb_shortcut_slot_t slot)
 {
     if (((rt_uint32_t)slot) >= DEVICE_USB_SHORTCUT_SLOT_COUNT)
@@ -309,6 +363,11 @@ static device_usb_shortcut_preset_t device_usb_get_slot_preset_locked(device_usb
     return s_usb_shortcut_slot_presets[slot];
 }
 
+/**
+ * @brief 在 USB 锁保护下向指定槽位追加一次快捷键触发请求。
+ * @param slot 快捷键槽位。
+ * @return 成功返回 RT_EOK，槽位无效返回 -RT_EINVAL。
+ */
 static rt_err_t device_usb_enqueue_shortcut_locked(device_usb_shortcut_slot_t slot)
 {
     if (((rt_uint32_t)slot) >= DEVICE_USB_SHORTCUT_SLOT_COUNT)
@@ -324,6 +383,11 @@ static rt_err_t device_usb_enqueue_shortcut_locked(device_usb_shortcut_slot_t sl
     return RT_EOK;
 }
 
+/**
+ * @brief 从待发送快捷键队列中取出一个动作。
+ * @param slot 输出参数，用于接收被取出的快捷键槽位。
+ * @return 成功取出返回 RT_TRUE，队列为空返回 RT_FALSE。
+ */
 static rt_bool_t device_usb_pop_shortcut(device_usb_shortcut_slot_t *slot)
 {
     rt_uint32_t index;
@@ -350,6 +414,11 @@ static rt_bool_t device_usb_pop_shortcut(device_usb_shortcut_slot_t *slot)
     return found;
 }
 
+/**
+ * @brief 扫描外部快捷键按键，并把有效按下事件加入 USB 队列。
+ * @param 无。
+ * @return 无。
+ */
 static void device_usb_scan_shortcut_buttons(void)
 {
     rt_uint32_t index;
@@ -370,6 +439,11 @@ static void device_usb_scan_shortcut_buttons(void)
     }
 }
 
+/**
+ * @brief 发送 HID 释放报告，用于结束上一帧按键或消费控制动作。
+ * @param release_type 需要释放的报告类型。
+ * @return 成功返回 RT_EOK，失败返回负数 RT-Thread 错误码。
+ */
 static rt_err_t device_usb_send_release_report(device_usb_release_t release_type)
 {
     switch (release_type)
@@ -385,6 +459,11 @@ static rt_err_t device_usb_send_release_report(device_usb_release_t release_type
     }
 }
 
+/**
+ * @brief 发送指定快捷键槽位绑定的键盘 HID 报告。
+ * @param slot 快捷键槽位。
+ * @return 成功返回 RT_EOK，无操作预设返回 -RT_ENOSYS，失败返回负数错误码。
+ */
 static rt_err_t device_usb_send_shortcut(device_usb_shortcut_slot_t slot)
 {
     const device_usb_shortcut_preset_entry_t *preset_entry;
@@ -415,6 +494,14 @@ static rt_err_t device_usb_send_shortcut(device_usb_shortcut_slot_t slot)
                                         preset_entry->binding.key_count);
 }
 
+/**
+ * @brief 更新网络服务状态快照。
+ * @param busy 当前是否正在执行网络任务。
+ * @param last_error 最近一次任务错误码。
+ * @param active_job 当前网络任务类型。
+ * @param ssid 当前任务关联的 SSID，可以为 RT_NULL。
+ * @return 无。
+ */
 static void device_net_set_status(rt_bool_t busy,
                                   rt_err_t last_error,
                                   device_net_job_t active_job,
@@ -437,12 +524,25 @@ static void device_net_set_status(rt_bool_t busy,
     rt_mutex_release(&s_net_lock);
 }
 
+/**
+ * @brief 在网络锁保护下判断 Wi-Fi 扫描是否已经处于活动状态。
+ * @param 无。
+ * @return 扫描已挂起或正在执行返回 RT_TRUE，否则返回 RT_FALSE。
+ */
 static rt_bool_t device_scan_is_active_locked(void)
 {
     return (s_scan_pending != RT_FALSE) ||
            ((s_net_status.busy != RT_FALSE) && (s_net_status.active_job == DEVICE_NET_JOB_WIFI_SCAN));
 }
 
+/**
+ * @brief 更新 USB HID 服务状态快照。
+ * @param stack_started USB 协议栈是否已启动。
+ * @param ready USB HID 是否枚举完成。
+ * @param can_send 当前是否可以立即发送 HID 报告。
+ * @param last_error 最近一次 USB 发送错误码。
+ * @return 无。
+ */
 static void device_usb_update_status(rt_bool_t stack_started,
                                      rt_bool_t ready,
                                      rt_bool_t can_send,
@@ -470,6 +570,11 @@ static void device_usb_update_status(rt_bool_t stack_started,
     rt_mutex_release(&s_usb_lock);
 }
 
+/**
+ * @brief 网络服务线程入口，串行处理 Wi-Fi 连接和待办上报请求。
+ * @param parameter RT-Thread 线程参数，当前未使用。
+ * @return 无。
+ */
 static void device_net_thread(void *parameter)
 {
     device_net_msg_t msg;
@@ -515,6 +620,11 @@ static void device_net_thread(void *parameter)
     }
 }
 
+/**
+ * @brief Wi-Fi 扫描线程入口，独立处理扫描请求以避免阻塞其它网络任务。
+ * @param parameter RT-Thread 线程参数，当前未使用。
+ * @return 无。
+ */
 static void device_scan_thread(void *parameter)
 {
     rt_err_t ret;
@@ -546,6 +656,11 @@ static void device_scan_thread(void *parameter)
     }
 }
 
+/**
+ * @brief USB HID 服务线程入口，处理音量、亮度和快捷键报告发送。
+ * @param parameter RT-Thread 线程参数，当前未使用。
+ * @return 无。
+ */
 static void device_usb_thread(void *parameter)
 {
     rt_err_t last_error = RT_EOK;
@@ -715,6 +830,11 @@ static void device_usb_thread(void *parameter)
     }
 }
 
+/**
+ * @brief 将网络服务消息投递到设备网络队列。
+ * @param msg 待投递的网络消息。
+ * @return 投递成功返回 RT_EOK，失败返回负数 RT-Thread 错误码。
+ */
 static rt_err_t device_net_post(const device_net_msg_t *msg)
 {
     if (msg == RT_NULL)
@@ -730,6 +850,11 @@ static rt_err_t device_net_post(const device_net_msg_t *msg)
     return rt_mq_send(&s_net_mq, (void *)msg, sizeof(*msg));
 }
 
+/**
+ * @brief 启动设备服务中的网络队列、Wi-Fi 扫描线程和 USB HID 线程。
+ * @param 无。
+ * @return 成功返回 RT_EOK，失败返回负数 RT-Thread 错误码。
+ */
 int device_service_start(void)
 {
     rt_err_t startup_ret;
@@ -845,6 +970,11 @@ int device_service_start(void)
     return RT_EOK;
 }
 
+/**
+ * @brief 请求执行一次异步 Wi-Fi 扫描。
+ * @param 无。
+ * @return 请求成功返回 RT_EOK，服务未启动返回 -RT_ENOSYS。
+ */
 rt_err_t device_net_service_request_scan(void)
 {
     rt_err_t ret;
@@ -876,6 +1006,12 @@ rt_err_t device_net_service_request_scan(void)
     return ret;
 }
 
+/**
+ * @brief 请求连接指定 Wi-Fi。
+ * @param ssid 目标 Wi-Fi 名称。
+ * @param ecn Wi-Fi 加密模式。
+ * @return 请求入队成功返回 RT_EOK，参数无效或服务异常时返回负数错误码。
+ */
 rt_err_t device_net_service_request_connect(const char *ssid, rt_uint8_t ecn)
 {
     device_net_msg_t msg;
@@ -893,6 +1029,11 @@ rt_err_t device_net_service_request_connect(const char *ssid, rt_uint8_t ecn)
     return device_net_post(&msg);
 }
 
+/**
+ * @brief 请求重新连接默认 Wi-Fi。
+ * @param 无。
+ * @return 请求入队成功返回 RT_EOK，失败返回负数错误码。
+ */
 rt_err_t device_net_service_request_rejoin(void)
 {
     device_net_msg_t msg;
@@ -902,6 +1043,11 @@ rt_err_t device_net_service_request_rejoin(void)
     return device_net_post(&msg);
 }
 
+/**
+ * @brief 请求从后端拉取待办列表。
+ * @param 无。
+ * @return 后端请求成功发起返回 RT_EOK，失败返回负数错误码。
+ */
 rt_err_t device_net_service_request_todo_pull(void)
 {
     rt_err_t ret;
@@ -923,6 +1069,11 @@ rt_err_t device_net_service_request_todo_pull(void)
     return ret;
 }
 
+/**
+ * @brief 将待办变更加入后端上报队列。
+ * @param change 待上报的待办变更数据。
+ * @return 入队成功返回 RT_EOK，失败返回负数错误码。
+ */
 rt_err_t device_net_service_queue_todo_report(const todo_snapshot_change_t *change)
 {
     rt_err_t ret;
@@ -953,6 +1104,11 @@ rt_err_t device_net_service_queue_todo_report(const todo_snapshot_change_t *chan
     return ret;
 }
 
+/**
+ * @brief 获取网络服务状态快照。
+ * @param status 输出参数，用于接收网络服务状态。
+ * @return 无。
+ */
 void device_net_service_get_status(device_net_service_status_t *status)
 {
     if (status == RT_NULL)
@@ -971,6 +1127,12 @@ void device_net_service_get_status(device_net_service_status_t *status)
     rt_mutex_release(&s_net_lock);
 }
 
+/**
+ * @brief 设置音量和亮度的绝对目标值。
+ * @param volume UI 侧音量目标值。
+ * @param brightness UI 侧亮度目标值。
+ * @return 成功返回 RT_EOK，服务未启动返回 -RT_ENOSYS。
+ */
 rt_err_t device_usb_service_set_targets(rt_int16_t volume, rt_int16_t brightness)
 {
     if (!s_service_started)
@@ -1004,6 +1166,12 @@ rt_err_t device_usb_service_set_targets(rt_int16_t volume, rt_int16_t brightness
     return RT_EOK;
 }
 
+/**
+ * @brief 追加音量和亮度的相对调节步数。
+ * @param volume_delta 音量相对变化步数。
+ * @param brightness_delta 亮度相对变化步数。
+ * @return 成功返回 RT_EOK，服务未启动返回 -RT_ENOSYS。
+ */
 rt_err_t device_usb_service_adjust(rt_int16_t volume_delta, rt_int16_t brightness_delta)
 {
     if (!s_service_started)
@@ -1019,6 +1187,11 @@ rt_err_t device_usb_service_adjust(rt_int16_t volume_delta, rt_int16_t brightnes
     return RT_EOK;
 }
 
+/**
+ * @brief 触发指定快捷键槽位。
+ * @param slot 快捷键槽位。
+ * @return 成功返回 RT_EOK，服务未启动或槽位无效时返回负数错误码。
+ */
 rt_err_t device_usb_service_trigger_shortcut(device_usb_shortcut_slot_t slot)
 {
     rt_err_t ret;
@@ -1035,6 +1208,12 @@ rt_err_t device_usb_service_trigger_shortcut(device_usb_shortcut_slot_t slot)
     return ret;
 }
 
+/**
+ * @brief 设置快捷键槽位绑定的预设组合键。
+ * @param slot 快捷键槽位。
+ * @param preset 预设组合键。
+ * @return 成功返回 RT_EOK，参数无效返回 -RT_EINVAL。
+ */
 rt_err_t device_usb_service_set_shortcut_preset(device_usb_shortcut_slot_t slot,
                                                 device_usb_shortcut_preset_t preset)
 {
@@ -1055,6 +1234,11 @@ rt_err_t device_usb_service_set_shortcut_preset(device_usb_shortcut_slot_t slot,
     return RT_EOK;
 }
 
+/**
+ * @brief 获取快捷键槽位绑定的预设组合键。
+ * @param slot 快捷键槽位。
+ * @return 当前预设组合键，槽位无效时返回 DEVICE_USB_SHORTCUT_PRESET_NONE。
+ */
 device_usb_shortcut_preset_t device_usb_service_get_shortcut_preset(device_usb_shortcut_slot_t slot)
 {
     device_usb_shortcut_preset_t preset = DEVICE_USB_SHORTCUT_PRESET_NONE;
@@ -1076,6 +1260,11 @@ device_usb_shortcut_preset_t device_usb_service_get_shortcut_preset(device_usb_s
     return preset;
 }
 
+/**
+ * @brief 获取快捷键预设的中文显示名称。
+ * @param preset 快捷键预设。
+ * @return 指向静态 UTF-8 字符串的指针。
+ */
 const char *device_usb_service_get_shortcut_preset_label(device_usb_shortcut_preset_t preset)
 {
     const device_usb_shortcut_preset_entry_t *preset_entry = device_usb_get_preset_entry(preset);
@@ -1083,11 +1272,16 @@ const char *device_usb_service_get_shortcut_preset_label(device_usb_shortcut_pre
     if (preset_entry == RT_NULL)
     {
         return "\xE6\x97\xA0\xE6\x93\x8D\xE4\xBD\x9C";
-}
+    }
 
     return preset_entry->label;
 }
 
+/**
+ * @brief 获取 USB HID 服务状态快照。
+ * @param status 输出参数，用于接收 USB HID 服务状态。
+ * @return 无。
+ */
 void device_usb_service_get_status(device_usb_service_status_t *status)
 {
     if (status == RT_NULL)

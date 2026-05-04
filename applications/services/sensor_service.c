@@ -10,6 +10,13 @@ static rt_bool_t s_sensor_started = RT_FALSE;
 static sensor_service_status_t s_sensor_status;
 static rt_uint32_t s_sensor_fail_count = 0U;
 
+/**
+ * @brief 更新传感器服务状态缓存。
+ * @param ret 本次 DHT11 读取结果。
+ * @param attempt_tick 本次尝试读取时的系统 tick。
+ * @param sample 成功读取到的采样数据，读取失败时为 RT_NULL。
+ * @return 无。
+ */
 static void sensor_service_set_status(rt_err_t ret,
                                       rt_tick_t attempt_tick,
                                       const dht11_sample_t *sample)
@@ -27,6 +34,11 @@ static void sensor_service_set_status(rt_err_t ret,
     rt_mutex_release(&s_sensor_lock);
 }
 
+/**
+ * @brief 传感器服务线程入口，周期性读取 DHT11 并缓存最新状态。
+ * @param parameter RT-Thread 线程参数，当前未使用。
+ * @return 无。
+ */
 static void sensor_service_thread(void *parameter)
 {
     RT_UNUSED(parameter);
@@ -58,6 +70,11 @@ static void sensor_service_thread(void *parameter)
     }
 }
 
+/**
+ * @brief 启动后台传感器轮询线程。
+ * @param 无。
+ * @return 成功返回 RT_EOK，失败返回负数 RT-Thread 错误码。
+ */
 int sensor_service_start(void)
 {
     rt_thread_t thread;
@@ -87,6 +104,11 @@ int sensor_service_start(void)
     return RT_EOK;
 }
 
+/**
+ * @brief 复制传感器服务当前状态。
+ * @param status 输出参数，用于接收状态快照。
+ * @return 无。
+ */
 void sensor_service_get_status(sensor_service_status_t *status)
 {
     if (status == RT_NULL)

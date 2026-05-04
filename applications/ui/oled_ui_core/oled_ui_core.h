@@ -309,74 +309,390 @@ typedef struct MenuItem {
 
 /******************************************************************************** */
 /******************************************************************************** */
-void oled_ui_update_fps(void);
-void oled_ui_render_fps(void);
-OLED_Font oled_ui_get_font(OLED_Font fontsize,bool style);
-void oled_ui_reverse_coordinate(int16_t X, int16_t Y, int16_t Width, int16_t Height,uint8_t Style);
-void oled_ui_apply_fade_mask(int16_t x0, int16_t y0, int16_t width, int16_t height, int8_t fadeLevel);
-void oled_ui_fade_current_area(int16_t x, int16_t y, int16_t width, int16_t height);
-void oled_ui_fade_all_areas(void);
-MenuID oled_ui_get_menu_item_count(MenuItem * items);
-void oled_ui_animate_scalar(float *CurrentNum, float *TargetNum, float *ErrorNum, float *LastErrorNum, float * IntegralNum, float *DerivativeNum);
-void oled_ui_animate_distance(oled_ui_anim_distance_t *distance);
-void oled_ui_animate_point(oled_ui_anim_point_t *point);
-void oled_ui_animate_area(oled_ui_anim_area_t *area);
-void oled_ui_init_current_page(void);
-void oled_ui_restore_parent_page(void);
-void oled_ui_init(MenuPage* Page);
-bool oled_ui_is_enter_idle(void);
-bool oled_ui_is_fade_idle(void);
 /**
- * @brief 请求刷新一块指定区域
- * @param x 区域左上角 X
- * @param y 区域左上角 Y
- * @param width 区域宽度
- * @param height 区域高度
- * @return 无
+ * @brief 更新 UI 帧率统计数据。
+ * @param 无。
+ * @return 无。
+ */
+void oled_ui_update_fps(void);
+
+/**
+ * @brief 在屏幕上绘制当前帧率信息。
+ * @param 无。
+ * @return 无。
+ */
+void oled_ui_render_fps(void);
+
+/**
+ * @brief 根据字号和字符类型获取实际绘制字号。
+ * @param fontsize 目标字号。
+ * @param style 字符类型，CHINESE 或 ASCII。
+ * @return 实际使用的 OLED 字号。
+ */
+OLED_Font oled_ui_get_font(OLED_Font fontsize,bool style);
+
+/**
+ * @brief 按指定样式反显或绘制光标区域。
+ * @param X 区域左上角 X 坐标。
+ * @param Y 区域左上角 Y 坐标。
+ * @param Width 区域宽度。
+ * @param Height 区域高度。
+ * @param Style 光标样式。
+ * @return 无。
+ */
+void oled_ui_reverse_coordinate(int16_t X, int16_t Y, int16_t Width, int16_t Height,uint8_t Style);
+
+/**
+ * @brief 对指定区域应用一层淡出遮罩。
+ * @param x0 区域左上角 X 坐标。
+ * @param y0 区域左上角 Y 坐标。
+ * @param width 区域宽度。
+ * @param height 区域高度。
+ * @param fadeLevel 淡出等级。
+ * @return 无。
+ */
+void oled_ui_apply_fade_mask(int16_t x0, int16_t y0, int16_t width, int16_t height, int8_t fadeLevel);
+
+/**
+ * @brief 对当前区域执行淡出处理。
+ * @param x 区域左上角 X 坐标。
+ * @param y 区域左上角 Y 坐标。
+ * @param width 区域宽度。
+ * @param height 区域高度。
+ * @return 无。
+ */
+void oled_ui_fade_current_area(int16_t x, int16_t y, int16_t width, int16_t height);
+
+/**
+ * @brief 对全部需要淡出的区域执行淡出处理。
+ * @param 无。
+ * @return 无。
+ */
+void oled_ui_fade_all_areas(void);
+
+/**
+ * @brief 统计菜单项数组中的有效菜单项数量。
+ * @param items 菜单项数组指针。
+ * @return 有效菜单项数量。
+ */
+MenuID oled_ui_get_menu_item_count(MenuItem * items);
+
+/**
+ * @brief 使用当前动画算法推进一个标量值。
+ * @param CurrentNum 当前值指针。
+ * @param TargetNum 目标值指针。
+ * @param ErrorNum 当前误差缓存指针。
+ * @param LastErrorNum 上一次误差缓存指针。
+ * @param IntegralNum 积分缓存指针。
+ * @param DerivativeNum 微分缓存指针。
+ * @return 无。
+ */
+void oled_ui_animate_scalar(float *CurrentNum, float *TargetNum, float *ErrorNum, float *LastErrorNum, float * IntegralNum, float *DerivativeNum);
+
+/**
+ * @brief 推进距离动画状态。
+ * @param distance 距离动画状态对象。
+ * @return 无。
+ */
+void oled_ui_animate_distance(oled_ui_anim_distance_t *distance);
+
+/**
+ * @brief 推进点坐标动画状态。
+ * @param point 点动画状态对象。
+ * @return 无。
+ */
+void oled_ui_animate_point(oled_ui_anim_point_t *point);
+
+/**
+ * @brief 推进矩形区域动画状态。
+ * @param area 区域动画状态对象。
+ * @return 无。
+ */
+void oled_ui_animate_area(oled_ui_anim_area_t *area);
+
+/**
+ * @brief 初始化当前页面的运行状态。
+ * @param 无。
+ * @return 无。
+ */
+void oled_ui_init_current_page(void);
+
+/**
+ * @brief 恢复当前页面的父页面指针和层级状态。
+ * @param 无。
+ * @return 无。
+ */
+void oled_ui_restore_parent_page(void);
+
+/**
+ * @brief 初始化 OLED UI 框架并进入指定首页。
+ * @param Page 首页页面对象。
+ * @return 无。
+ */
+void oled_ui_init(MenuPage* Page);
+
+/**
+ * @brief 检查确认键是否处于可响应状态。
+ * @param 无。
+ * @return 空闲返回 true，否则返回 false。
+ */
+bool oled_ui_is_enter_idle(void);
+
+/**
+ * @brief 检查淡出动画是否处于空闲状态。
+ * @param 无。
+ * @return 空闲返回 true，否则返回 false。
+ */
+bool oled_ui_is_fade_idle(void);
+
+/**
+ * @brief 请求刷新一块指定区域。
+ * @param x 区域左上角 X 坐标。
+ * @param y 区域左上角 Y 坐标。
+ * @param width 区域宽度。
+ * @param height 区域高度。
+ * @return 无。
  */
 void oled_ui_request_refresh_area(int16_t x, int16_t y, int16_t width, int16_t height);
+
 /**
- * @brief 请求刷新当前页面的主显示区域
- * @param 无
- * @return 无
+ * @brief 请求刷新当前页面的主显示区域。
+ * @param 无。
+ * @return 无。
  */
 void oled_ui_request_current_page_refresh(void);
+
 /**
- * @brief 强制下一帧执行整屏刷新
- * @param 无
- * @return 无
+ * @brief 强制下一帧执行整屏刷新。
+ * @param 无。
+ * @return 无。
  */
 void oled_ui_request_full_refresh(void);
+
+/**
+ * @brief 计算原始字符串的显示宽度。
+ * @param ChineseFont 中文字号。
+ * @param ASCIIFont ASCII 字号。
+ * @param String UTF-8 字符串。
+ * @return 字符串像素宽度。
+ */
 int16_t oled_ui_calc_raw_string_width(int16_t ChineseFont, int16_t ASCIIFont, const char *String);
+
+/**
+ * @brief 按 printf 格式计算字符串显示宽度。
+ * @param ChineseFont 中文字号。
+ * @param ASCIIFont ASCII 字号。
+ * @param format printf 风格格式化字符串。
+ * @return 字符串像素宽度。
+ */
 int16_t oled_ui_calc_string_width(int16_t ChineseFont, int16_t ASCIIFont, const char *format, ...);
+
+/**
+ * @brief 判断窗口绑定数据的数据类型。
+ * @param int16_tdata 整型数据指针。
+ * @param float_tdata 浮点数据指针。
+ * @return WINDOW_DATA_STYLE_* 类型。
+ */
 int8_t oled_ui_get_window_data_style(int16_t *int16_tdata,float *float_tdata);
+
+/**
+ * @brief 绘制当前弹窗。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_draw_window(void);
+
+/**
+ * @brief 将列表或磁贴选择向上移动。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_move_items_up(void);
+
+/**
+ * @brief 将列表或磁贴选择向下移动。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_move_items_down(void);
+
+/**
+ * @brief 将磁贴选择向左移动。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_move_items_left(void);
+
+/**
+ * @brief 将磁贴选择向右移动。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_move_items_right(void);
+
+/**
+ * @brief 获取当前页面可选槽位数量。
+ * @param 无。
+ * @return 当前页面最大槽位数量。
+ */
 int16_t oled_ui_get_current_page_max_slot_count(void);
+
+/**
+ * @brief 根据当前选中项设置目标光标区域。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_set_target_cursor(void);
+
+/**
+ * @brief 设置目标菜单边框动画状态。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_set_target_menu_frame(void);
+
+/**
+ * @brief 重置长文本横向滚动状态。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_reset_line_slip(void);
+
+/**
+ * @brief 设置滚动条目标高度。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_set_target_scrollbar_height(void);
+
+/**
+ * @brief 设置弹窗进度条目标宽度。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_set_target_progress_width(void);
+
+/**
+ * @brief 绘制列表项前缀符号。
+ * @param page 当前页面对象。
+ * @param i 菜单项索引。
+ * @param CursorPoint 当前菜单项起始点。
+ * @param ChineseFont 中文字号。
+ * @param ASCIIFont ASCII 字号。
+ * @return 无。
+ */
 void oled_ui_draw_line_prefix(MenuPage* page,MenuID i,OLED_Point* CursorPoint,OLED_Font ChineseFont,OLED_Font ASCIIFont);
+
+/**
+ * @brief 绘制当前页面所有菜单元素。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_draw_menu_elements(void);
+
+/**
+ * @brief 轮询按键和旋钮输入并返回安全/非安全菜单索引。
+ * @param 无。
+ * @return 菜单索引状态。
+ */
 MenuID_Type oled_ui_poll_key_and_encoder(void);
+
+/**
+ * @brief 锁定确认键，避免动画或回调期间重复触发。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_lock_enter(void);
+
+/**
+ * @brief 解锁确认键，使其重新响应输入。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_unlock_enter(void);
+
+/**
+ * @brief 设置淡出动画标志。
+ * @param action FLAGSTART 或 FLAGEND。
+ * @return 无。
+ */
 void oled_ui_set_fade_flag(MutexFlag action);
+
+/**
+ * @brief 重置淡出动画标志。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_reset_fade_flag(void);
+
+/**
+ * @brief 进入当前选中的菜单项或执行其回调。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_enter_menu_item(void);
+
+/**
+ * @brief 从当前菜单项返回上一层页面。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_back_menu_item(void);
+
+/**
+ * @brief 执行统一返回动作。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_back(void);
+
+/**
+ * @brief 运行当前选中菜单项绑定的回调函数。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_run_current_callback(void);
+
+/**
+ * @brief 重置光标动画和选中状态。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_reset_cursor(void);
+
+/**
+ * @brief 创建并显示一个菜单弹窗。
+ * @param window 弹窗配置对象。
+ * @return 无。
+ */
 void oled_ui_create_window(MenuWindow* window);
+
+/**
+ * @brief 执行菜单淡出动画。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_run_fade_out(void);
+
+/**
+ * @brief 推进菜单元素动画并更新目标位置。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_move_menu_elements(void);
+
+/**
+ * @brief 执行一帧 OLED UI 主循环。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_main_loop(void);
+
+/**
+ * @brief 处理 UI 输入中断或周期性输入采样。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_interrupt_handler(void);     
 #endif  /* OLED_UI */
 

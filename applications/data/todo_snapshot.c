@@ -11,11 +11,22 @@ static todo_snapshot_t g_snapshot;
 static struct rt_mutex g_snapshot_lock;
 static rt_bool_t g_snapshot_ready = RT_FALSE;
 
+/**
+ * @brief 将 RT-Thread tick 转换为毫秒。
+ * @param ticks 需要转换的系统 tick 数。
+ * @return 对应的毫秒数。
+ */
 static rt_uint64_t todo_ticks_to_ms(rt_tick_t ticks)
 {
     return ((rt_uint64_t)ticks * 1000ULL) / (rt_uint64_t)RT_TICK_PER_SECOND;
 }
 
+/**
+ * @brief 根据快照时间和当前 tick 生成待办变更时间戳。
+ * @param item 当前被修改的待办项。
+ * @param now_tick 当前系统 tick。
+ * @return 单调递增的变更时间戳，单位毫秒。
+ */
 static rt_uint64_t todo_resolve_change_timestamp(const todo_item_t *item, rt_tick_t now_tick)
 {
     rt_uint64_t candidate = 0ULL;
@@ -52,6 +63,11 @@ static rt_uint64_t todo_resolve_change_timestamp(const todo_item_t *item, rt_tic
     return candidate;
 }
 
+/**
+ * @brief 跳过 JSON 字符串中的空白字符。
+ * @param p 当前解析指针。
+ * @return 指向下一个非空白字符的指针。
+ */
 static const char *todo_skip_ws(const char *p)
 {
     while ((p != RT_NULL) &&
@@ -63,6 +79,13 @@ static const char *todo_skip_ws(const char *p)
     return p;
 }
 
+/**
+ * @brief 解析 JSON 字符串值。
+ * @param cursor 输入输出参数，传入当前位置，返回解析后的新位置。
+ * @param out 输出字符串缓冲区。
+ * @param out_len out 缓冲区长度。
+ * @return 解析成功返回 RT_EOK，失败返回负数错误码。
+ */
 static rt_err_t todo_parse_json_string(const char **cursor, char *out, rt_size_t out_len)
 {
     const char *p;
@@ -109,7 +132,7 @@ static rt_err_t todo_parse_json_string(const char **cursor, char *out, rt_size_t
                 ch = '\t';
                 break;
             case 'u':
-                /* Keep parser tiny: skip \uXXXX, store '?' as placeholder. */
+                /* 轻量解析器不展开 \uXXXX，跳过编码并用 '?' 占位。 */
                 if ((p[0] != '\0') && (p[1] != '\0') && (p[2] != '\0') && (p[3] != '\0'))
                 {
                     p += 4;
@@ -137,6 +160,12 @@ static rt_err_t todo_parse_json_string(const char **cursor, char *out, rt_size_t
     return RT_EOK;
 }
 
+/**
+ * @brief 解析 JSON 布尔值。
+ * @param cursor 输入输出参数，传入当前位置，返回解析后的新位置。
+ * @param value 输出参数，用于接收布尔值。
+ * @return 解析成功返回 RT_EOK，失败返回负数错误码。
+ */
 static rt_err_t todo_parse_json_bool(const char **cursor, rt_bool_t *value)
 {
     const char *p;
@@ -163,6 +192,12 @@ static rt_err_t todo_parse_json_bool(const char **cursor, rt_bool_t *value)
     return -RT_ERROR;
 }
 
+/**
+ * @brief 解析无符号 64 位 JSON 整数。
+ * @param cursor 输入输出参数，传入当前位置，返回解析后的新位置。
+ * @param value 输出参数，用于接收整数值。
+ * @return 解析成功返回 RT_EOK，失败返回负数错误码。
+ */
 static rt_err_t todo_parse_json_u64(const char **cursor, rt_uint64_t *value)
 {
     const char *p;
@@ -192,6 +227,11 @@ static rt_err_t todo_parse_json_u64(const char **cursor, rt_uint64_t *value)
 
 static rt_err_t todo_skip_json_value(const char **cursor);
 
+/**
+ * @brief 跳过一个完整 JSON 对象。
+ * @param cursor 输入输出参数，传入对象起始位置，返回对象结束后的新位置。
+ * @return 跳过成功返回 RT_EOK，失败返回负数错误码。
+ */
 static rt_err_t todo_skip_json_object(const char **cursor)
 {
     const char *p;
@@ -249,6 +289,11 @@ static rt_err_t todo_skip_json_object(const char **cursor)
     }
 }
 
+/**
+ * @brief 跳过一个完整 JSON 数组。
+ * @param cursor 输入输出参数，传入数组起始位置，返回数组结束后的新位置。
+ * @return 跳过成功返回 RT_EOK，失败返回负数错误码。
+ */
 static rt_err_t todo_skip_json_array(const char **cursor)
 {
     const char *p;
@@ -292,6 +337,11 @@ static rt_err_t todo_skip_json_array(const char **cursor)
     }
 }
 
+/**
+ * @brief 跳过任意 JSON 值。
+ * @param cursor 输入输出参数，传入值起始位置，返回值结束后的新位置。
+ * @return 跳过成功返回 RT_EOK，失败返回负数错误码。
+ */
 static rt_err_t todo_skip_json_value(const char **cursor)
 {
     const char *p;
@@ -347,6 +397,12 @@ static rt_err_t todo_skip_json_value(const char **cursor)
     }
 }
 
+/**
+ * @brief 解析单个待办项对象。
+ * @param cursor 输入输出参数，传入对象起始位置，返回对象结束后的新位置。
+ * @param item 输出参数，用于接收待办项数据。
+ * @return 解析成功返回 RT_EOK，失败返回负数错误码。
+ */
 static rt_err_t todo_parse_item(const char **cursor, todo_item_t *item)
 {
     const char *p;
@@ -438,6 +494,12 @@ static rt_err_t todo_parse_item(const char **cursor, todo_item_t *item)
     }
 }
 
+/**
+ * @brief 解析待办项数组并写入快照对象。
+ * @param cursor 输入输出参数，传入数组起始位置，返回数组结束后的新位置。
+ * @param snapshot 输出快照对象。
+ * @return 解析成功返回 RT_EOK，失败返回负数错误码。
+ */
 static rt_err_t todo_parse_items(const char **cursor, todo_snapshot_t *snapshot)
 {
     const char *p;
@@ -497,6 +559,12 @@ static rt_err_t todo_parse_items(const char **cursor, todo_snapshot_t *snapshot)
     }
 }
 
+/**
+ * @brief 解析完整待办快照 JSON。
+ * @param json 以空字符结尾的 JSON 字符串。
+ * @param snapshot 输出快照对象。
+ * @return 解析成功返回 RT_EOK，失败返回负数错误码。
+ */
 static rt_err_t todo_parse_snapshot(const char *json, todo_snapshot_t *snapshot)
 {
     const char *p;
@@ -578,6 +646,11 @@ static rt_err_t todo_parse_snapshot(const char *json, todo_snapshot_t *snapshot)
     }
 }
 
+/**
+ * @brief 初始化或重置待办快照缓存。
+ * @param 无。
+ * @return 无。
+ */
 void todo_snapshot_init(void)
 {
     if (!g_snapshot_ready)
@@ -591,6 +664,11 @@ void todo_snapshot_init(void)
     rt_mutex_release(&g_snapshot_lock);
 }
 
+/**
+ * @brief 使用后端 JSON 更新本地待办快照。
+ * @param json 后端返回的待办快照 JSON。
+ * @return 更新成功返回 RT_EOK，失败返回负数错误码。
+ */
 rt_err_t todo_snapshot_update_from_json(const char *json)
 {
     todo_snapshot_t parsed;
@@ -626,6 +704,11 @@ rt_err_t todo_snapshot_update_from_json(const char *json)
     return RT_EOK;
 }
 
+/**
+ * @brief 获取当前待办快照副本。
+ * @param snapshot 输出参数，用于接收快照副本。
+ * @return 无。
+ */
 void todo_snapshot_get(todo_snapshot_t *snapshot)
 {
     if ((snapshot == RT_NULL) || !g_snapshot_ready)
@@ -638,6 +721,12 @@ void todo_snapshot_get(todo_snapshot_t *snapshot)
     rt_mutex_release(&g_snapshot_lock);
 }
 
+/**
+ * @brief 切换指定待办项完成状态，并生成最小上报数据。
+ * @param index 待办项索引。
+ * @param change 输出参数，用于接收变更上报数据，可以为 RT_NULL。
+ * @return 修改成功返回 RT_EOK，失败返回负数错误码。
+ */
 rt_err_t todo_snapshot_toggle_completed(rt_uint32_t index, todo_snapshot_change_t *change)
 {
     todo_item_t *item;

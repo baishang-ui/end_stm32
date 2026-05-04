@@ -40,6 +40,14 @@ static rt_uint32_t s_boot_step_count = 0U;
 static rt_uint32_t s_boot_plan_total = 0U;
 static rt_uint32_t s_boot_last_active_step = 0U;
 
+/**
+ * @brief 线性插值两个整数，用于启动动画滚动和进度条过渡。
+ * @param from 起始值。
+ * @param to 目标值。
+ * @param numerator 当前插值分子。
+ * @param denominator 插值分母。
+ * @return 插值后的整数结果。
+ */
 static int oled_ui_boot_lerp_int(int from, int to, int numerator, int denominator)
 {
     if (denominator <= 0)
@@ -50,6 +58,11 @@ static int oled_ui_boot_lerp_int(int from, int to, int numerator, int denominato
     return from + (((to - from) * numerator) / denominator);
 }
 
+/**
+ * @brief 将启动步骤总数限制在内部缓存容量以内。
+ * @param total 原始步骤总数。
+ * @return 限制后的步骤总数。
+ */
 static rt_uint32_t oled_ui_boot_clamp_total(rt_uint32_t total)
 {
     if (total > OLED_BOOT_MAX_STEPS)
@@ -60,6 +73,11 @@ static rt_uint32_t oled_ui_boot_clamp_total(rt_uint32_t total)
     return total;
 }
 
+/**
+ * @brief 获取启动动画当前应使用的步骤总数。
+ * @param total 调用者传入的步骤总数，0 表示使用缓存值。
+ * @return 至少为 1 的有效步骤总数。
+ */
 static rt_uint32_t oled_ui_boot_get_total(rt_uint32_t total)
 {
     total = oled_ui_boot_clamp_total(total);
@@ -81,6 +99,11 @@ static rt_uint32_t oled_ui_boot_get_total(rt_uint32_t total)
     return 1U;
 }
 
+/**
+ * @brief 根据步骤索引获取启动步骤显示名称。
+ * @param index 步骤索引。
+ * @return 步骤名称字符串，没有名称时返回占位字符串。
+ */
 static const char *oled_ui_boot_get_label_by_index(rt_uint32_t index)
 {
     if ((index < OLED_BOOT_MAX_STEPS) && (s_boot_labels[index][0] != '\0'))
@@ -91,6 +114,11 @@ static const char *oled_ui_boot_get_label_by_index(rt_uint32_t index)
     return "...";
 }
 
+/**
+ * @brief 根据总步骤数计算启动列表可见行数。
+ * @param total 启动步骤总数。
+ * @return 当前列表可见行数。
+ */
 static rt_uint32_t oled_ui_boot_get_visible_rows(rt_uint32_t total)
 {
     if (total == 0U)
@@ -106,6 +134,12 @@ static rt_uint32_t oled_ui_boot_get_visible_rows(rt_uint32_t total)
     return OLED_BOOT_VISIBLE_ROWS;
 }
 
+/**
+ * @brief 将当前步骤编号转换为活动步骤索引。
+ * @param active_step 当前活动步骤编号，从 1 开始。
+ * @param total 启动步骤总数。
+ * @return 活动步骤索引，从 0 开始。
+ */
 static rt_uint32_t oled_ui_boot_get_active_index(rt_uint32_t active_step, rt_uint32_t total)
 {
     if (total == 0U)
@@ -126,6 +160,12 @@ static rt_uint32_t oled_ui_boot_get_active_index(rt_uint32_t active_step, rt_uin
     return active_step - 1U;
 }
 
+/**
+ * @brief 计算启动列表当前滚动窗口的首行索引。
+ * @param active_index 当前活动步骤索引。
+ * @param total 启动步骤总数。
+ * @return 可见窗口首行索引。
+ */
 static rt_uint32_t oled_ui_boot_get_first_index(rt_uint32_t active_index, rt_uint32_t total)
 {
     rt_uint32_t visible_rows = oled_ui_boot_get_visible_rows(total);
@@ -151,6 +191,12 @@ static rt_uint32_t oled_ui_boot_get_first_index(rt_uint32_t active_index, rt_uin
     return active_index;
 }
 
+/**
+ * @brief 计算活动步骤在可见列表中的行号。
+ * @param active_index 当前活动步骤索引。
+ * @param total 启动步骤总数。
+ * @return 活动步骤所在的可见行号。
+ */
 static rt_uint32_t oled_ui_boot_get_cursor_row(rt_uint32_t active_index, rt_uint32_t total)
 {
     rt_uint32_t visible_rows = oled_ui_boot_get_visible_rows(total);
@@ -168,6 +214,12 @@ static rt_uint32_t oled_ui_boot_get_cursor_row(rt_uint32_t active_index, rt_uint
     return visible_rows - 1U;
 }
 
+/**
+ * @brief 绘制启动页右上角步骤计数。
+ * @param active_step 当前活动步骤编号。
+ * @param total 启动步骤总数。
+ * @return 无。
+ */
 static void oled_ui_boot_draw_counter(rt_uint32_t active_step, rt_uint32_t total)
 {
     char counter_text[16];
@@ -194,6 +246,13 @@ static void oled_ui_boot_draw_counter(rt_uint32_t active_step, rt_uint32_t total
     OLED_Printf(text_x, OLED_BOOT_COUNTER_Y, OLED_6X8_HALF, "%s", counter_text);
 }
 
+/**
+ * @brief 绘制启动页标题和步骤计数。
+ * @param title 标题文本。
+ * @param active_step 当前活动步骤编号。
+ * @param total 启动步骤总数。
+ * @return 无。
+ */
 static void oled_ui_boot_draw_header(const char *title, rt_uint32_t active_step, rt_uint32_t total)
 {
     OLED_PrintfMixArea(0,
@@ -209,6 +268,14 @@ static void oled_ui_boot_draw_header(const char *title, rt_uint32_t active_step,
     oled_ui_boot_draw_counter(active_step, total);
 }
 
+/**
+ * @brief 绘制启动步骤滚动列表。
+ * @param active_step 当前活动步骤编号。
+ * @param total 启动步骤总数。
+ * @param numerator 当前动画帧分子。
+ * @param denominator 动画帧分母。
+ * @return 无。
+ */
 static void oled_ui_boot_draw_list(rt_uint32_t active_step,
                                    rt_uint32_t total,
                                    int numerator,
@@ -284,6 +351,11 @@ static void oled_ui_boot_draw_list(rt_uint32_t active_step,
                      OLED_BOOT_ROW_H);
 }
 
+/**
+ * @brief 绘制启动页底部进度条。
+ * @param fill_width 进度条填充宽度。
+ * @return 无。
+ */
 static void oled_ui_boot_draw_progress(int fill_width)
 {
     OLED_DrawRoundedRectangle(OLED_BOOT_BAR_X,
@@ -303,6 +375,15 @@ static void oled_ui_boot_draw_progress(int fill_width)
     }
 }
 
+/**
+ * @brief 渲染一帧完整启动动画页面。
+ * @param active_step 当前活动步骤编号。
+ * @param total 启动步骤总数。
+ * @param title 页面标题。
+ * @param numerator 当前动画帧分子。
+ * @param denominator 动画帧分母。
+ * @return 无。
+ */
 static void oled_ui_boot_render(rt_uint32_t active_step,
                                 rt_uint32_t total,
                                 const char *title,
@@ -334,6 +415,11 @@ static void oled_ui_boot_render(rt_uint32_t active_step,
     OLED_Update();
 }
 
+/**
+ * @brief 初始化 OLED 启动页显示状态。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_boot_init(void)
 {
     memset(s_boot_labels, 0, sizeof(s_boot_labels));
@@ -349,6 +435,12 @@ void oled_ui_boot_init(void)
     oled_ui_boot_render(0U, 1U, "启动", 1, 1);
 }
 
+/**
+ * @brief 设置启动页的步骤计划。
+ * @param total 启动步骤总数。
+ * @param labels 步骤名称数组。
+ * @return 无。
+ */
 void oled_ui_boot_set_plan(rt_uint32_t total, const char * const *labels)
 {
     rt_uint32_t index;
@@ -377,6 +469,14 @@ void oled_ui_boot_set_plan(rt_uint32_t total, const char * const *labels)
     oled_ui_boot_render(0U, s_boot_plan_total, "启动", 1, 1);
 }
 
+/**
+ * @brief 推进启动页到指定步骤，并播放滚动动画。
+ * @param step 当前步骤索引，从 0 开始。
+ * @param total 启动步骤总数。
+ * @param label 当前步骤名称。
+ * @param result 当前步骤结果，当前仅预留显示扩展。
+ * @return 无。
+ */
 void oled_ui_boot_step(rt_uint32_t step, rt_uint32_t total, const char *label, rt_err_t result)
 {
     rt_uint32_t index;
@@ -425,6 +525,11 @@ void oled_ui_boot_step(rt_uint32_t step, rt_uint32_t total, const char *label, r
     rt_thread_mdelay(OLED_BOOT_SETTLE_DELAY_MS);
 }
 
+/**
+ * @brief 显示启动完成页面并短暂停留。
+ * @param 无。
+ * @return 无。
+ */
 void oled_ui_boot_complete(void)
 {
     rt_uint32_t total = oled_ui_boot_get_total(0U);
@@ -433,6 +538,11 @@ void oled_ui_boot_complete(void)
     rt_thread_mdelay(OLED_BOOT_FINISH_DELAY_MS);
 }
 
+/**
+ * @brief OLED UI 主线程入口，周期性处理输入、页面刷新和 UI 主循环。
+ * @param parameter RT-Thread 线程参数，当前未使用。
+ * @return 无。
+ */
 static void oled_ui_core_thread(void *parameter)
 {
     rt_tick_t last_input_tick;
@@ -465,6 +575,11 @@ static void oled_ui_core_thread(void *parameter)
     }
 }
 
+/**
+ * @brief 启动 OLED UI 主线程。
+ * @param 无。
+ * @return 成功返回 RT_EOK，失败返回负数 RT-Thread 错误码。
+ */
 int oled_ui_core_start(void)
 {
     rt_thread_t thread;
@@ -485,6 +600,11 @@ int oled_ui_core_start(void)
     return RT_EOK;
 }
 
+/**
+ * @brief 等待 OLED UI 主线程进入就绪状态。
+ * @param timeout_ms 超时时间，单位毫秒；小于 0 表示一直等待。
+ * @return 就绪返回 RT_EOK，超时返回 -RT_ETIMEOUT。
+ */
 rt_err_t oled_ui_core_wait_ready(rt_int32_t timeout_ms)
 {
     rt_tick_t start = rt_tick_get();

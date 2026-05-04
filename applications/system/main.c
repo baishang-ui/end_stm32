@@ -51,6 +51,11 @@ static const char * const g_boot_step_labels[BOOT_STEP_TOTAL] =
     "USB init",
 };
 
+/**
+ * @brief 在启动流程中执行一段可显示进度的稳定延时。
+ * @param delay_ms 延时时长，单位毫秒。
+ * @return 始终返回 RT_EOK。
+ */
 static rt_err_t app_boot_delay(rt_uint32_t delay_ms)
 {
     if (delay_ms > 0U)
@@ -61,6 +66,11 @@ static rt_err_t app_boot_delay(rt_uint32_t delay_ms)
     return RT_EOK;
 }
 
+/**
+ * @brief 等待 ESP01S 完成基础初始化或进入可用状态。
+ * @param timeout_ms 最大等待时间，单位毫秒。
+ * @return 就绪返回 RT_EOK，超时或模块错误时返回负数错误码。
+ */
 static rt_err_t app_wait_for_esp_ready(rt_uint32_t timeout_ms)
 {
     esp01s_status_t status;
@@ -86,6 +96,11 @@ static rt_err_t app_wait_for_esp_ready(rt_uint32_t timeout_ms)
     }
 }
 
+/**
+ * @brief 等待阿里云 MQTT 服务完成启动。
+ * @param timeout_ms 最大等待时间，单位毫秒。
+ * @return 服务启动返回 RT_EOK，超时返回 -RT_ETIMEOUT。
+ */
 static rt_err_t app_wait_for_cloud_started(rt_uint32_t timeout_ms)
 {
     aliyun_iot_status_t status;
@@ -110,6 +125,11 @@ static rt_err_t app_wait_for_cloud_started(rt_uint32_t timeout_ms)
     }
 }
 
+/**
+ * @brief 对 USB HID 协议栈执行启动预热，避免主循环刚开始时立即发送失败。
+ * @param delay_ms 预热等待时间，单位毫秒。
+ * @return USB 协议栈已启动返回 RT_EOK，否则返回 -RT_EIO。
+ */
 static rt_err_t app_warm_up_usb_stack(rt_uint32_t delay_ms)
 {
     if (usb_hid_is_started() == RT_FALSE)
@@ -121,6 +141,11 @@ static rt_err_t app_warm_up_usb_stack(rt_uint32_t delay_ms)
     return RT_EOK;
 }
 
+/**
+ * @brief 应用主入口，按顺序初始化 UI、传感器、网络、云端和设备服务。
+ * @param 无。
+ * @return 嵌入式主循环不会返回。
+ */
 int main(void)
 {
     rt_err_t ret;

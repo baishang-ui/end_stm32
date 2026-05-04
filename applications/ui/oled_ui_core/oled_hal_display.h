@@ -38,10 +38,42 @@
 #define OLED_CMD  0
 #define OLED_DATA 1
 
+/**
+ * @brief 初始化 OLED 控制器、GPIO/SPI 和显存状态。
+ * @param 无。
+ * @return 无。
+ */
 void OLED_Init(void);
+
+/**
+ * @brief 将完整显存缓冲区刷新到 OLED 屏幕。
+ * @param 无。
+ * @return 无。
+ */
 void OLED_Update(void);
+
+/**
+ * @brief 将显存中的指定区域刷新到 OLED 屏幕。
+ * @param X 区域左上角 X 坐标。
+ * @param Y 区域左上角 Y 坐标。
+ * @param Width 区域宽度。
+ * @param Height 区域高度。
+ * @return 无。
+ */
 void OLED_UpdateArea(uint8_t X, uint8_t Y, uint8_t Width, uint8_t Height);
+
+/**
+ * @brief 设置 OLED 显示颜色模式。
+ * @param colormode true 表示深色模式，false 表示浅色模式。
+ * @return 无。
+ */
 void OLED_SetColorMode(bool colormode);
+
+/**
+ * @brief 设置 OLED 亮度。
+ * @param Brightness 亮度值，具体范围由底层控制器决定。
+ * @return 无。
+ */
 void OLED_Brightness(int16_t Brightness);
 
 #endif
