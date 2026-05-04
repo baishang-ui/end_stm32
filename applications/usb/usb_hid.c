@@ -10,7 +10,7 @@
 
 #include <rtthread.h>
 
-#include "usb_d.h"
+#include "usb_hid.h"
 #include "usb_device.h"
 #include "usbd_def.h"
 #include "usbd_customhid.h"

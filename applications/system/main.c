@@ -21,10 +21,10 @@
 #include "sensor/dht11.h"
 #include "network/esp01s_at.h"
 #include "cloud/aliyun_iot_mqtt.h"
-#include "oled_ui_core_app.h"
-#include "device_service.h"
-#include "sensor_service.h"
-#include "usb_d.h"
+#include "ui/oled_ui_service/oled_ui_core_app.h"
+#include "services/device_service.h"
+#include "services/sensor_service.h"
+#include "usb/usb_hid.h"
 
 #define GPIO_LED    GET_PIN(B, 2)
 #define BOOT_STEP_TOTAL               11U

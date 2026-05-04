@@ -11,7 +11,7 @@
 #include "data/todo_snapshot.h"
 #include "cloud/aliyun_iot_mqtt.h"
 #include "network/esp01s_at.h"
-#include "app/device_service.h"
+#include "services/device_service.h"
 
 #define APP_UI_SCAN_MAX_APS          8
 #define APP_UI_TODO_LINE_LEN         96

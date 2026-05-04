@@ -19,7 +19,7 @@
 #include "network/esp01s_at.h"
 #include "aliyun_iot_mqtt.h"
 #include "data/todo_snapshot.h"
-#include "app/sensor_service.h"
+#include "services/sensor_service.h"
 
 #define DBG_TAG    "ali.iot"
 #define DBG_LVL    DBG_INFO

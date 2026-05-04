@@ -7,7 +7,7 @@
 
 #include "network/esp01s_at.h"
 #include "cloud/aliyun_iot_mqtt.h"
-#include "usb_d.h"
+#include "usb/usb_hid.h"
 
 #define DEVICE_NET_QUEUE_DEPTH              8U
 #define DEVICE_NET_THREAD_STACK_SIZE        4096U

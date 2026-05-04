@@ -1,5 +1,5 @@
-#ifndef __USB_D_H__
-#define __USB_D_H__
+#ifndef __USB_HID_H__
+#define __USB_HID_H__
 
 #include <rtthread.h>
 
@@ -25,4 +25,4 @@ rt_err_t usb_hid_send_keyboard_report(rt_uint8_t modifier,
 }
 #endif
 
-#endif /* __USB_D_H__ */
+#endif /* __USB_HID_H__ */
