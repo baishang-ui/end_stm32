@@ -518,47 +518,65 @@ static rt_err_t esp01s_write_bytes(const void *data, rt_size_t len)
     return ret;
 }
 
-static rt_err_t esp01s_write_line_nolock(const char *fmt, ...)
+static rt_err_t esp01s_format_line(char *line, rt_size_t line_len, const char *fmt, va_list args)
 {
-    char line[256];
     int len;
-    va_list args;
 
-    va_start(args, fmt);
-    len = rt_vsnprintf(line, sizeof(line) - 3, fmt, args);
-    va_end(args);
+    if ((line == RT_NULL) || (line_len <= 3U) || (fmt == RT_NULL))
+    {
+        return -RT_EINVAL;
+    }
+
+    len = rt_vsnprintf(line, line_len - 3U, fmt, args);
     if (len < 0)
     {
         return -RT_ERROR;
+    }
+    if ((rt_size_t)len >= (line_len - 3U))
+    {
+        line[0] = '\0';
+        return -RT_ENOMEM;
     }
 
     line[len++] = '\r';
     line[len++] = '\n';
     line[len] = '\0';
-    return esp01s_write_bytes_nolock(line, (rt_size_t)len);
+    return RT_EOK;
+}
+
+static rt_err_t esp01s_write_line_nolock(const char *fmt, ...)
+{
+    char line[256];
+    va_list args;
+    rt_err_t ret;
+
+    va_start(args, fmt);
+    ret = esp01s_format_line(line, sizeof(line), fmt, args);
+    va_end(args);
+    if (ret != RT_EOK)
+    {
+        return ret;
+    }
+
+    return esp01s_write_bytes_nolock(line, rt_strlen(line));
 }
 
 static rt_err_t esp01s_write_line(const char *fmt, ...)
 {
     char line[256];
-    int len;
     va_list args;
     rt_err_t ret;
 
     va_start(args, fmt);
-    len = rt_vsnprintf(line, sizeof(line) - 3, fmt, args);
+    ret = esp01s_format_line(line, sizeof(line), fmt, args);
     va_end(args);
-    if (len < 0)
+    if (ret != RT_EOK)
     {
-        return -RT_ERROR;
+        return ret;
     }
 
-    line[len++] = '\r';
-    line[len++] = '\n';
-    line[len] = '\0';
-
     esp01s_at_lock_take();
-    ret = esp01s_write_bytes_nolock(line, (rt_size_t)len);
+    ret = esp01s_write_bytes_nolock(line, rt_strlen(line));
     esp01s_at_lock_release();
     return ret;
 }

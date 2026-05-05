@@ -7,6 +7,26 @@ rt_int16_t AppUI_FontSize = OLED_UI_FONT_12;
 rt_bool_t AppUI_UseSmoothCurve = RT_TRUE;
 
 /**
+ * @brief 将配置字号归一化为 UI 支持的字号。
+ * @param font_size 用户配置或运行时修改后的字号。
+ * @return UI 支持的最接近字号。
+ */
+static rt_int16_t app_ui_normalize_font_size(rt_int16_t font_size)
+{
+    if (font_size <= OLED_UI_FONT_8)
+    {
+        return OLED_UI_FONT_8;
+    }
+
+    if (font_size <= OLED_UI_FONT_12)
+    {
+        return OLED_UI_FONT_12;
+    }
+
+    return OLED_UI_FONT_16;
+}
+
+/**
  * @brief 根据运行时开关获取菜单移动动画类型。
  * @param 无。
  * @return 启用平滑曲线返回 EASE_CURVE，否则返回 UNLINEAR。
@@ -28,18 +48,7 @@ void app_ui_apply_runtime_to_page(MenuPage *page)
         return;
     }
 
-    if (AppUI_FontSize <= OLED_UI_FONT_8)
-    {
-        AppUI_FontSize = OLED_UI_FONT_8;
-    }
-    else if (AppUI_FontSize <= OLED_UI_FONT_12)
-    {
-        AppUI_FontSize = OLED_UI_FONT_12;
-    }
-    else
-    {
-        AppUI_FontSize = OLED_UI_FONT_16;
-    }
+    AppUI_FontSize = app_ui_normalize_font_size(AppUI_FontSize);
 
     page->General_MovingSpeed = AppUI_PageMotionSpeed;
     page->General_MoveStyle = app_ui_get_move_style();

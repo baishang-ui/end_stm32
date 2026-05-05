@@ -452,38 +452,6 @@ static rt_err_t ali_mqtt_prepare(const aliyun_iot_auth_t *auth)
     return RT_EOK;
 }
 
-static rt_err_t ali_subscribe_todo_topic(void)
-{
-    rt_err_t ret;
-
-    ret = esp01s_mqtt_subscribe(ALIYUN_IOT_SUB_TOPIC, 0);
-    if (ret != RT_EOK)
-    {
-        rt_kprintf("[ALI] MQTTSUB rsp: %s\r\n", esp01s_last_response());
-        return ret;
-    }
-
-    g_ali.subscribed = RT_TRUE;
-    ali_set_state("SUB");
-    rt_kprintf("[ALI] subscribed topic: %s\r\n", ALIYUN_IOT_SUB_TOPIC);
-    ret = esp01s_mqtt_pubraw(ALIYUN_IOT_REPORT_TOPIC,
-                             ALIYUN_IOT_PULL_PAYLOAD,
-                             sizeof(ALIYUN_IOT_PULL_PAYLOAD) - 1U,
-                             0,
-                             RT_FALSE);
-    if (ret != RT_EOK)
-    {
-        rt_kprintf("[ALI] todo pull req failed: %d\r\n", ret);
-        rt_kprintf("[ALI] todo pull rsp: %s\r\n", esp01s_last_response());
-        return ret;
-    }
-
-    g_ali_todo_pull_pending = RT_FALSE;
-    ali_set_state("PULL");
-    rt_kprintf("[ALI] todo pull requested\r\n");
-    return RT_EOK;
-}
-
 static rt_err_t ali_publish_todo_pull_request(void)
 {
     rt_err_t ret;
@@ -504,6 +472,23 @@ static rt_err_t ali_publish_todo_pull_request(void)
     ali_set_state("PULL");
     rt_kprintf("[ALI] todo pull requested\r\n");
     return RT_EOK;
+}
+
+static rt_err_t ali_subscribe_todo_topic(void)
+{
+    rt_err_t ret;
+
+    ret = esp01s_mqtt_subscribe(ALIYUN_IOT_SUB_TOPIC, 0);
+    if (ret != RT_EOK)
+    {
+        rt_kprintf("[ALI] MQTTSUB rsp: %s\r\n", esp01s_last_response());
+        return ret;
+    }
+
+    g_ali.subscribed = RT_TRUE;
+    ali_set_state("SUB");
+    rt_kprintf("[ALI] subscribed topic: %s\r\n", ALIYUN_IOT_SUB_TOPIC);
+    return ali_publish_todo_pull_request();
 }
 
 static rt_bool_t ali_json_snapshot_complete(const char *json, rt_size_t len)

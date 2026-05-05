@@ -109,6 +109,11 @@ static rt_err_t todo_parse_json_string(const char **cursor, char *out, rt_size_t
 
         if (ch == '\\')
         {
+            if (*p == '\0')
+            {
+                return -RT_ERROR;
+            }
+
             ch = *p++;
             switch (ch)
             {
@@ -133,7 +138,11 @@ static rt_err_t todo_parse_json_string(const char **cursor, char *out, rt_size_t
                 break;
             case 'u':
                 /* 轻量解析器不展开 \uXXXX，跳过编码并用 '?' 占位。 */
-                if ((p[0] != '\0') && (p[1] != '\0') && (p[2] != '\0') && (p[3] != '\0'))
+                if ((p[0] == '\0') || (p[1] == '\0') || (p[2] == '\0') || (p[3] == '\0'))
+                {
+                    return -RT_ERROR;
+                }
+                else
                 {
                     p += 4;
                 }

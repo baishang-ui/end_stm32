@@ -54,7 +54,6 @@ typedef enum
 {
     DEVICE_NET_CMD_WIFI_CONNECT = 0,
     DEVICE_NET_CMD_WIFI_REJOIN,
-    DEVICE_NET_CMD_TODO_REPORT,
 } device_net_cmd_t;
 
 typedef struct
@@ -62,7 +61,6 @@ typedef struct
     rt_uint8_t cmd;
     rt_uint8_t ecn;
     char ssid[33];
-    todo_snapshot_change_t change;
 } device_net_msg_t;
 
 typedef struct
@@ -168,6 +166,28 @@ static rt_tick_t s_usb_last_report_tick = 0U;
 static rt_uint16_t device_abs_i16(rt_int16_t value)
 {
     return (value < 0) ? (rt_uint16_t)(-((rt_int32_t)value)) : (rt_uint16_t)value;
+}
+
+/**
+ * @brief 将 int16_t 数值限制到指定范围。
+ * @param value 原始数值。
+ * @param min_value 最小允许值。
+ * @param max_value 最大允许值。
+ * @return 限幅后的数值。
+ */
+static rt_int16_t device_clamp_i16(rt_int16_t value, rt_int16_t min_value, rt_int16_t max_value)
+{
+    if (value < min_value)
+    {
+        return min_value;
+    }
+
+    if (value > max_value)
+    {
+        return max_value;
+    }
+
+    return value;
 }
 
 /**
@@ -536,6 +556,26 @@ static rt_bool_t device_scan_is_active_locked(void)
 }
 
 /**
+ * @brief 在网络服务已初始化时更新当前网络任务状态。
+ * @param busy 当前是否忙碌。
+ * @param last_error 最近一次错误码。
+ * @param active_job 当前任务类型。
+ * @return 无。
+ */
+static void device_net_set_job_status(rt_bool_t busy,
+                                      rt_err_t last_error,
+                                      device_net_job_t active_job)
+{
+    if (s_net_inited)
+    {
+        device_net_set_status(busy,
+                              last_error,
+                              busy ? active_job : DEVICE_NET_JOB_NONE,
+                              RT_NULL);
+    }
+}
+
+/**
  * @brief 更新 USB HID 服务状态快照。
  * @param stack_started USB 协议栈是否已启动。
  * @param ready USB HID 是否枚举完成。
@@ -604,12 +644,6 @@ static void device_net_thread(void *parameter)
         case DEVICE_NET_CMD_WIFI_REJOIN:
             device_net_set_status(RT_TRUE, RT_EOK, DEVICE_NET_JOB_WIFI_REJOIN, RT_NULL);
             ret = esp01s_join_default_ap();
-            device_net_set_status(RT_FALSE, ret, DEVICE_NET_JOB_NONE, RT_NULL);
-            break;
-
-        case DEVICE_NET_CMD_TODO_REPORT:
-            device_net_set_status(RT_TRUE, RT_EOK, DEVICE_NET_JOB_TODO_REPORT, RT_NULL);
-            ret = aliyun_iot_queue_todo_report(&msg.change);
             device_net_set_status(RT_FALSE, ret, DEVICE_NET_JOB_NONE, RT_NULL);
             break;
 
@@ -851,13 +885,84 @@ static rt_err_t device_net_post(const device_net_msg_t *msg)
 }
 
 /**
+ * @brief 删除指定线程并清空线程句柄。
+ * @param thread 线程句柄指针。
+ * @return 无。
+ */
+static void device_service_delete_thread(rt_thread_t *thread)
+{
+    if ((thread != RT_NULL) && (*thread != RT_NULL))
+    {
+        rt_thread_delete(*thread);
+        *thread = RT_NULL;
+    }
+}
+
+/**
+ * @brief 清理设备服务启动阶段已经创建的线程。
+ * @param 无。
+ * @return 无。
+ */
+static void device_service_cleanup_threads(void)
+{
+    device_service_delete_thread(&s_net_thread);
+    device_service_delete_thread(&s_scan_thread);
+    device_service_delete_thread(&s_usb_thread);
+}
+
+/**
+ * @brief 创建设备服务线程。
+ * @param thread 输出参数，用于保存线程句柄。
+ * @param name 线程名称。
+ * @param entry 线程入口函数。
+ * @param stack_size 线程栈大小。
+ * @param priority 线程优先级。
+ * @return 成功返回 RT_EOK，失败返回负数错误码。
+ */
+static rt_err_t device_service_create_thread(rt_thread_t *thread,
+                                             const char *name,
+                                             void (*entry)(void *parameter),
+                                             rt_uint32_t stack_size,
+                                             rt_uint8_t priority)
+{
+    if (thread == RT_NULL)
+    {
+        return -RT_EINVAL;
+    }
+
+    *thread = rt_thread_create(name, entry, RT_NULL, stack_size, priority, 10);
+    return (*thread != RT_NULL) ? RT_EOK : -RT_ENOMEM;
+}
+
+/**
+ * @brief 启动设备服务线程并输出统一日志。
+ * @param thread 需要启动的线程句柄。
+ * @param tag 日志标签。
+ * @param stack_size 线程栈大小，用于日志输出。
+ * @return 成功返回 RT_EOK，失败返回 rt_thread_startup 的错误码。
+ */
+static rt_err_t device_service_start_thread(rt_thread_t thread,
+                                            const char *tag,
+                                            rt_uint32_t stack_size)
+{
+    rt_err_t ret = rt_thread_startup(thread);
+
+    rt_kprintf("[%s] startup ret=%d stack=%u\r\n",
+               tag,
+               ret,
+               (unsigned int)stack_size);
+
+    return ret;
+}
+
+/**
  * @brief 启动设备服务中的网络队列、Wi-Fi 扫描线程和 USB HID 线程。
  * @param 无。
  * @return 成功返回 RT_EOK，失败返回负数 RT-Thread 错误码。
  */
 int device_service_start(void)
 {
-    rt_err_t startup_ret;
+    rt_err_t ret;
 
     if (s_service_started || s_service_starting)
     {
@@ -897,72 +1002,63 @@ int device_service_start(void)
         s_usb_inited = RT_TRUE;
     }
 
-    s_net_thread = rt_thread_create("devnet", device_net_thread, RT_NULL, DEVICE_NET_THREAD_STACK_SIZE, 20, 10);
-    if (s_net_thread == RT_NULL)
+    ret = device_service_create_thread(&s_net_thread,
+                                       "devnet",
+                                       device_net_thread,
+                                       DEVICE_NET_THREAD_STACK_SIZE,
+                                       20);
+    if (ret != RT_EOK)
     {
         s_service_starting = RT_FALSE;
-        return -RT_ENOMEM;
+        return ret;
     }
 
-    s_scan_thread = rt_thread_create("devscan", device_scan_thread, RT_NULL, DEVICE_SCAN_THREAD_STACK_SIZE, 20, 10);
-    if (s_scan_thread == RT_NULL)
+    ret = device_service_create_thread(&s_scan_thread,
+                                       "devscan",
+                                       device_scan_thread,
+                                       DEVICE_SCAN_THREAD_STACK_SIZE,
+                                       20);
+    if (ret != RT_EOK)
     {
-        rt_thread_delete(s_net_thread);
-        s_net_thread = RT_NULL;
+        device_service_cleanup_threads();
         s_service_starting = RT_FALSE;
-        return -RT_ENOMEM;
+        return ret;
     }
 
-    s_usb_thread = rt_thread_create("devusb", device_usb_thread, RT_NULL, DEVICE_USB_THREAD_STACK_SIZE, 21, 10);
-    if (s_usb_thread == RT_NULL)
+    ret = device_service_create_thread(&s_usb_thread,
+                                       "devusb",
+                                       device_usb_thread,
+                                       DEVICE_USB_THREAD_STACK_SIZE,
+                                       21);
+    if (ret != RT_EOK)
     {
-        rt_thread_delete(s_net_thread);
-        rt_thread_delete(s_scan_thread);
-        s_net_thread = RT_NULL;
-        s_scan_thread = RT_NULL;
+        device_service_cleanup_threads();
         s_service_starting = RT_FALSE;
-        return -RT_ENOMEM;
+        return ret;
     }
 
-    startup_ret = rt_thread_startup(s_net_thread);
-    rt_kprintf("[DEVNET] startup ret=%d stack=%u\r\n", startup_ret, (unsigned int)DEVICE_NET_THREAD_STACK_SIZE);
-    if (startup_ret != RT_EOK)
+    ret = device_service_start_thread(s_net_thread, "DEVNET", DEVICE_NET_THREAD_STACK_SIZE);
+    if (ret != RT_EOK)
     {
-        rt_thread_delete(s_net_thread);
-        rt_thread_delete(s_scan_thread);
-        rt_thread_delete(s_usb_thread);
-        s_net_thread = RT_NULL;
-        s_scan_thread = RT_NULL;
-        s_usb_thread = RT_NULL;
+        device_service_cleanup_threads();
         s_service_starting = RT_FALSE;
-        return startup_ret;
+        return ret;
     }
 
-    startup_ret = rt_thread_startup(s_scan_thread);
-    rt_kprintf("[DEVSCAN] startup ret=%d stack=%u\r\n", startup_ret, (unsigned int)DEVICE_SCAN_THREAD_STACK_SIZE);
-    if (startup_ret != RT_EOK)
+    ret = device_service_start_thread(s_scan_thread, "DEVSCAN", DEVICE_SCAN_THREAD_STACK_SIZE);
+    if (ret != RT_EOK)
     {
-        rt_thread_delete(s_net_thread);
-        rt_thread_delete(s_scan_thread);
-        rt_thread_delete(s_usb_thread);
-        s_net_thread = RT_NULL;
-        s_scan_thread = RT_NULL;
-        s_usb_thread = RT_NULL;
+        device_service_cleanup_threads();
         s_service_starting = RT_FALSE;
-        return startup_ret;
+        return ret;
     }
 
-    startup_ret = rt_thread_startup(s_usb_thread);
-    if (startup_ret != RT_EOK)
+    ret = device_service_start_thread(s_usb_thread, "DEVUSB", DEVICE_USB_THREAD_STACK_SIZE);
+    if (ret != RT_EOK)
     {
-        rt_thread_delete(s_net_thread);
-        rt_thread_delete(s_scan_thread);
-        rt_thread_delete(s_usb_thread);
-        s_net_thread = RT_NULL;
-        s_scan_thread = RT_NULL;
-        s_usb_thread = RT_NULL;
+        device_service_cleanup_threads();
         s_service_starting = RT_FALSE;
-        return startup_ret;
+        return ret;
     }
 
     s_service_started = RT_TRUE;
@@ -1052,17 +1148,9 @@ rt_err_t device_net_service_request_todo_pull(void)
 {
     rt_err_t ret;
 
-    if (s_net_inited)
-    {
-        device_net_set_status(RT_TRUE, RT_EOK, DEVICE_NET_JOB_TODO_PULL, RT_NULL);
-    }
-
+    device_net_set_job_status(RT_TRUE, RT_EOK, DEVICE_NET_JOB_TODO_PULL);
     ret = aliyun_iot_request_todo_pull();
-
-    if (s_net_inited)
-    {
-        device_net_set_status(RT_FALSE, ret, DEVICE_NET_JOB_NONE, RT_NULL);
-    }
+    device_net_set_job_status(RT_FALSE, ret, DEVICE_NET_JOB_TODO_PULL);
 
     rt_kprintf("[DEVNET] todo pull ret=%d\r\n", ret);
 
@@ -1083,17 +1171,9 @@ rt_err_t device_net_service_queue_todo_report(const todo_snapshot_change_t *chan
         return -RT_EINVAL;
     }
 
-    if (s_net_inited)
-    {
-        device_net_set_status(RT_TRUE, RT_EOK, DEVICE_NET_JOB_TODO_REPORT, RT_NULL);
-    }
-
+    device_net_set_job_status(RT_TRUE, RT_EOK, DEVICE_NET_JOB_TODO_REPORT);
     ret = aliyun_iot_queue_todo_report(change);
-
-    if (s_net_inited)
-    {
-        device_net_set_status(RT_FALSE, ret, DEVICE_NET_JOB_NONE, RT_NULL);
-    }
+    device_net_set_job_status(RT_FALSE, ret, DEVICE_NET_JOB_TODO_REPORT);
 
     rt_kprintf("[DEVNET] todo queue ret=%d id=%s completed=%d updatedAt=%llu\r\n",
                ret,
@@ -1140,23 +1220,8 @@ rt_err_t device_usb_service_set_targets(rt_int16_t volume, rt_int16_t brightness
         return -RT_ENOSYS;
     }
 
-    if (volume < 0)
-    {
-        volume = 0;
-    }
-    else if (volume > 100)
-    {
-        volume = 100;
-    }
-
-    if (brightness < 0)
-    {
-        brightness = 0;
-    }
-    else if (brightness > 100)
-    {
-        brightness = 100;
-    }
+    volume = device_clamp_i16(volume, 0, 100);
+    brightness = device_clamp_i16(brightness, 0, 100);
 
     rt_mutex_take(&s_usb_lock, RT_WAITING_FOREVER);
     s_usb_target_volume = volume;

@@ -247,8 +247,7 @@ static void app_ui_refresh_dynamic_content(bool force_refresh)
         app_ui_refresh_todo_items();
         content_updated = true;
     }
-
-    if (page == &WiFiInfoMenuPage)
+    else if (page == &WiFiInfoMenuPage)
     {
         app_ui_refresh_wifi_info_items();
         content_updated = true;
@@ -259,13 +258,12 @@ static void app_ui_refresh_dynamic_content(bool force_refresh)
         content_updated = true;
     }
 
-    if (page == &StatusMenuPage)
+    else if (page == &StatusMenuPage)
     {
         app_ui_refresh_status_items();
         content_updated = true;
     }
-
-    if (page == &PCControlMenuPage)
+    else if (page == &PCControlMenuPage)
     {
         app_ui_refresh_pc_items();
         content_updated = true;
