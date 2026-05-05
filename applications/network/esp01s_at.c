@@ -79,6 +79,7 @@ static void esp01s_set_state(const char *state);
 static void esp01s_set_error(rt_err_t err);
 static void esp01s_clear_scan_list(void);
 static void esp01s_update_rssi_from_scan(void);
+static void esp01s_update_station_info_from_cwjap(void);
 static rt_err_t esp01s_parse_scan_results(void);
 static const char *esp01s_find_saved_password(const char *ssid);
 static rt_err_t esp01s_force_reset(void);
@@ -238,6 +239,43 @@ static void esp01s_update_rssi_from_scan(void)
             g_esp.rssi = g_esp.aps[i].rssi;
             return;
         }
+    }
+}
+
+static void esp01s_update_station_info_from_cwjap(void)
+{
+    char *line;
+    char *line_end;
+    char *rssi_field;
+    int rssi;
+
+    line = rt_strstr(g_esp.rx_buf, "+CWJAP:");
+    if (line == RT_NULL)
+    {
+        return;
+    }
+
+    line_end = strpbrk(line, "\r\n");
+    if (line_end == RT_NULL)
+    {
+        line_end = line + rt_strlen(line);
+    }
+
+    rssi_field = line_end;
+    while ((rssi_field > line) && (*rssi_field != ','))
+    {
+        rssi_field--;
+    }
+
+    if ((rssi_field <= line) || (*rssi_field != ','))
+    {
+        return;
+    }
+
+    rssi = atoi(rssi_field + 1);
+    if ((rssi >= -127) && (rssi <= 0))
+    {
+        g_esp.rssi = (rt_int16_t)rssi;
     }
 }
 
@@ -430,6 +468,7 @@ static char *esp01s_parse_scan_entry(char *cursor, esp01s_ap_info_t *ap)
 static rt_err_t esp01s_parse_scan_results(void)
 {
     char *cursor;
+    esp01s_ap_info_t parsed_aps[ESP01S_MAX_APS];
     rt_size_t count = 0;
     rt_base_t level;
 
@@ -446,15 +485,19 @@ static rt_err_t esp01s_parse_scan_results(void)
         next_cursor = esp01s_parse_scan_entry(cursor, &ap);
         if ((next_cursor != RT_NULL) && (count < ESP01S_MAX_APS))
         {
-            level = rt_hw_interrupt_disable();
-            g_esp.aps[count] = ap;
-            count++;
-            g_esp.ap_count = count;
-            rt_hw_interrupt_enable(level);
+            parsed_aps[count++] = ap;
         }
 
         cursor = ((next_cursor != RT_NULL) && (next_cursor > cursor)) ? next_cursor : (cursor + 7);
     }
+
+    level = rt_hw_interrupt_disable();
+    if (count > 0U)
+    {
+        memcpy(g_esp.aps, parsed_aps, count * sizeof(parsed_aps[0]));
+    }
+    g_esp.ap_count = count;
+    rt_hw_interrupt_enable(level);
 
     esp01s_update_rssi_from_scan();
     return (count > 0U) ? RT_EOK : -RT_ERROR;
@@ -873,6 +916,7 @@ static rt_bool_t esp01s_station_matches(const char *ssid)
         return RT_FALSE;
     }
 
+    esp01s_update_station_info_from_cwjap();
     return (rt_strstr(g_esp.rx_buf, ssid) != RT_NULL) ? RT_TRUE : RT_FALSE;
 }
 
@@ -892,6 +936,7 @@ static rt_err_t esp01s_apply_station_tuning(void)
 rt_err_t esp01s_join_ap(const char *ssid, const char *password)
 {
     char cmd[160];
+    int cmd_len;
     rt_err_t ret;
 
     if ((ssid == RT_NULL) || (password == RT_NULL))
@@ -916,7 +961,14 @@ rt_err_t esp01s_join_ap(const char *ssid, const char *password)
     }
 
     esp01s_clear_rx();
-    rt_snprintf(cmd, sizeof(cmd), "AT+CWJAP_CUR=\"%s\",\"%s\"", ssid, password);
+    cmd_len = rt_snprintf(cmd, sizeof(cmd), "AT+CWJAP_CUR=\"%s\",\"%s\"", ssid, password);
+    if ((cmd_len <= 0) || ((rt_size_t)cmd_len >= sizeof(cmd)))
+    {
+        esp01s_set_error(-RT_ENOMEM);
+        esp01s_set_state("ERR");
+        return -RT_ENOMEM;
+    }
+
     ret = esp01s_write_line("%s", cmd);
     if (ret != RT_EOK)
     {
@@ -929,7 +981,14 @@ rt_err_t esp01s_join_ap(const char *ssid, const char *password)
     if (ret != RT_EOK)
     {
         esp01s_clear_rx();
-        rt_snprintf(cmd, sizeof(cmd), "AT+CWJAP=\"%s\",\"%s\"", ssid, password);
+        cmd_len = rt_snprintf(cmd, sizeof(cmd), "AT+CWJAP=\"%s\",\"%s\"", ssid, password);
+        if ((cmd_len <= 0) || ((rt_size_t)cmd_len >= sizeof(cmd)))
+        {
+            esp01s_set_error(-RT_ENOMEM);
+            esp01s_set_state("ERR");
+            return -RT_ENOMEM;
+        }
+
         ret = esp01s_write_line("%s", cmd);
         if (ret == RT_EOK)
         {
@@ -949,6 +1008,7 @@ rt_err_t esp01s_join_ap(const char *ssid, const char *password)
     {
         g_esp.connected = RT_TRUE;
         esp01s_update_rssi_from_scan();
+        (void)esp01s_station_matches(ssid);
         esp01s_set_error(RT_EOK);
         esp01s_set_state("UP");
         return RT_EOK;
@@ -957,7 +1017,6 @@ rt_err_t esp01s_join_ap(const char *ssid, const char *password)
     if (esp01s_station_matches(ssid))
     {
         g_esp.connected = RT_TRUE;
-        esp01s_update_rssi_from_scan();
         esp01s_set_error(RT_EOK);
         esp01s_set_state("UP");
         return RT_EOK;
@@ -1122,6 +1181,10 @@ rt_err_t esp01s_get_ip(char *ip, rt_size_t len)
     g_esp.ip[sizeof(g_esp.ip) - 1] = '\0';
     g_esp.connected = RT_TRUE;
     esp01s_update_rssi_from_scan();
+    if (g_esp.ssid[0] != '\0')
+    {
+        (void)esp01s_station_matches(g_esp.ssid);
+    }
     esp01s_set_state("UP");
     esp01s_set_error(RT_EOK);
     return RT_EOK;
@@ -1284,6 +1347,7 @@ rt_err_t esp01s_mqtt_pubraw(const char *topic,
                             rt_bool_t retain)
 {
     char cmd[192];
+    int cmd_len;
     rt_err_t ret;
 
     if ((topic == RT_NULL) || (payload == RT_NULL) || (len == 0))
@@ -1298,11 +1362,17 @@ rt_err_t esp01s_mqtt_pubraw(const char *topic,
 
     esp01s_at_lock_take();
     esp01s_clear_rx();
-    rt_snprintf(cmd, sizeof(cmd), "AT+MQTTPUBRAW=0,\"%s\",%u,%u,%u",
-                topic,
-                (unsigned int)len,
-                (unsigned int)qos,
-                retain ? 1U : 0U);
+    cmd_len = rt_snprintf(cmd, sizeof(cmd), "AT+MQTTPUBRAW=0,\"%s\",%u,%u,%u",
+                          topic,
+                          (unsigned int)len,
+                          (unsigned int)qos,
+                          retain ? 1U : 0U);
+    if ((cmd_len <= 0) || ((rt_size_t)cmd_len >= sizeof(cmd)))
+    {
+        esp01s_at_lock_release();
+        return -RT_ENOMEM;
+    }
+
     ret = esp01s_write_line_nolock("%s", cmd);
     if (ret != RT_EOK)
     {
@@ -1332,13 +1402,19 @@ rt_err_t esp01s_mqtt_pubraw(const char *topic,
 rt_err_t esp01s_mqtt_subscribe(const char *topic, rt_uint8_t qos)
 {
     char cmd[256];
+    int cmd_len;
 
     if (topic == RT_NULL)
     {
         return -RT_EINVAL;
     }
 
-    rt_snprintf(cmd, sizeof(cmd), "AT+MQTTSUB=0,\"%s\",%u", topic, (unsigned int)qos);
+    cmd_len = rt_snprintf(cmd, sizeof(cmd), "AT+MQTTSUB=0,\"%s\",%u", topic, (unsigned int)qos);
+    if ((cmd_len <= 0) || ((rt_size_t)cmd_len >= sizeof(cmd)))
+    {
+        return -RT_ENOMEM;
+    }
+
     return esp01s_at_command(cmd, "OK", "ERROR", 5000);
 }
 

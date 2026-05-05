@@ -341,21 +341,25 @@ void OLED_UpdateArea(uint8_t X, uint8_t Y, uint8_t Width, uint8_t Height)
 	uint8_t j;
 
 	/*参数检查，保证指定区域不会超出屏幕范围*/
-	if (X > 128 - 1)
+	if ((Width == 0U) || (Height == 0U))
 	{
 		return;
 	}
-	if (Y > 64 - 1)
+	if (X > OLED_WIDTH - 1)
 	{
 		return;
 	}
-	if (X + Width > 128)
+	if (Y > OLED_HEIGHT - 1)
 	{
-		Width = 128 - X;
+		return;
 	}
-	if (Y + Height > 64)
+	if (X + Width > OLED_WIDTH)
 	{
-		Height = 64 - Y;
+		Width = OLED_WIDTH - X;
+	}
+	if (Y + Height > OLED_HEIGHT)
+	{
+		Height = OLED_HEIGHT - Y;
 	}
 
 	/*遍历指定区域涉及的相关页*/

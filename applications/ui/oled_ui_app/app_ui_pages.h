@@ -128,6 +128,7 @@ extern MenuPage SettingsMenuPage;
  * @return 无。
  */
 void app_ui_refresh_pages(void);
+rt_bool_t app_ui_simple_mode_task(void);
 
 #ifdef __cplusplus
 }

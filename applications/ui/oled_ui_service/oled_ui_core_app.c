@@ -563,6 +563,12 @@ static void oled_ui_core_thread(void *parameter)
 
     while (1)
     {
+        if (app_ui_simple_mode_task() != RT_FALSE)
+        {
+            rt_thread_mdelay(8);
+            continue;
+        }
+
         if ((rt_tick_get() - last_input_tick) >= rt_tick_from_millisecond(20))
         {
             oled_ui_interrupt_handler();

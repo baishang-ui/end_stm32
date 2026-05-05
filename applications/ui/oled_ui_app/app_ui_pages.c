@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include <rtthread.h>
+#include <drv_gpio.h>
 
 #include "app_ui_assets.h"
 #include "app_ui_runtime.h"
@@ -12,6 +13,9 @@
 #include "cloud/aliyun_iot_mqtt.h"
 #include "network/esp01s_at.h"
 #include "services/device_service.h"
+#include "services/sensor_service.h"
+#include "ui/oled_ui_core/oled_graphics.h"
+#include "ui/oled_ui_core/oled_hal_input.h"
 
 #define APP_UI_SCAN_MAX_APS          8
 #define APP_UI_TODO_LINE_LEN         96
@@ -23,6 +27,14 @@
 #define APP_UI_PC_REPORT_UNIT        2
 #define APP_UI_PC_DELTA_MIN          (-32767)
 #define APP_UI_PC_DELTA_MAX          32767
+#define APP_UI_SIMPLE_KEY_PIN        GET_PIN(A, 0)
+#define APP_UI_SIMPLE_DEBOUNCE_MS    35U
+#define APP_UI_SIMPLE_FOCUS_COUNT    3U
+#define APP_UI_SIMPLE_TODO_CYCLE_MS  2600U
+#define APP_UI_SIMPLE_TODO_HOLD_MS   4200U
+#define APP_UI_SIMPLE_ITEM_TODO      1U
+#define APP_UI_SIMPLE_ITEM_VOLUME    2U
+#define APP_UI_SIMPLE_ITEM_BRIGHTNESS 3U
 
 #define APP_UI_TXT_TODO              "待办"
 #define APP_UI_TXT_NETWORK           "网络"
@@ -80,11 +92,50 @@ static rt_int16_t s_pc_volume_delta = 0;
 static rt_int16_t s_pc_brightness_delta = 0;
 static rt_int16_t s_pc_volume_shadow = 0;
 static rt_int16_t s_pc_brightness_shadow = 0;
+static rt_bool_t s_simple_mode = RT_FALSE;
+static rt_bool_t s_simple_key_inited = RT_FALSE;
+static rt_uint8_t s_simple_key_active_level = 1U;
+static rt_uint8_t s_simple_key_stable_level = 0U;
+static rt_uint8_t s_simple_key_last_raw_level = 0U;
+static rt_tick_t s_simple_key_change_tick = 0U;
+static rt_tick_t s_simple_todo_last_cycle_tick = 0U;
+static rt_tick_t s_simple_todo_hold_tick = 0U;
+static rt_uint8_t s_simple_focus = 0U;
+static rt_uint32_t s_simple_todo_index = 0U;
+static rt_int16_t s_simple_volume_delta = 0;
+static rt_int16_t s_simple_brightness_delta = 0;
+static char s_simple_lines[4][APP_UI_STATUS_LINE_LEN];
+static MenuItem s_simple_mode_items[5];
+static MenuPage *s_simple_saved_page = RT_NULL;
+static MenuPage s_simple_mode_page = {
+    .General_MenuType = MENU_TYPE_LIST,
+    .General_MovingSpeed = 7.0f,
+    .General_CursorStyle = REVERSE_ROUNDRECTANGLE,
+    .General_MoveStyle = EASE_CURVE,
+    .General_FontSize = OLED_UI_FONT_12,
+    .General_ParentMenuPage = RT_NULL,
+    .General_MenuItems = s_simple_mode_items,
+    .General_LineSpace = 3,
+    .General_ShowAuxiliaryFunction = RT_NULL,
+    .List_MenuArea = {0, 0, 128, 64},
+    .List_IfDrawFrame = false,
+    .List_IfDrawLinePerfix = false,
+    .List_StartPointX = 2,
+    .List_StartPointY = 1,
+    .Tiles_ScreenWidth = 128,
+    .Tiles_ScreenHeight = 64,
+    .Tiles_TileWidth = 0,
+    .Tiles_TileHeight = 0,
+    ._ActiveMenuID = 0,
+    ._Slot = 0,
+    ._StartPoint = {0, 0},
+};
 
 static void app_ui_request_scan(void);
 static void app_ui_request_rejoin(void);
 static void app_ui_request_todo_pull(void);
 static void app_ui_toggle_todo_item(void);
+static void app_ui_simple_toggle_todo_item(void);
 static void app_ui_handle_scan_selection(void);
 static void app_ui_apply_shortcut_preset_selection(void);
 static void app_ui_open_screen_brightness_window(void);
@@ -101,11 +152,15 @@ static void app_ui_refresh_pc_items(void);
 static void app_ui_refresh_status_items(void);
 static void app_ui_refresh_scan_items(void);
 static void app_ui_refresh_todo_items(void);
+static void app_ui_refresh_simple_mode_items(void);
 static void app_ui_update_pc_delta(void);
 static bool app_ui_float_changed(float lhs, float rhs);
 static bool app_ui_runtime_changed(void);
 static void app_ui_commit_runtime_cache(void);
 static void app_ui_refresh_dynamic_content(bool force_refresh);
+static void app_ui_simple_mark_todo_interaction(void);
+static void app_ui_simple_cycle_todo(rt_int16_t delta, rt_uint32_t todo_count);
+static void app_ui_simple_handle_encoder(void);
 
 static void app_ui_copy_visible_text(char *dst, rt_size_t dst_len, const char *src)
 {
@@ -136,6 +191,8 @@ static void app_ui_copy_visible_text(char *dst, rt_size_t dst_len, const char *s
 
         if ((ch & 0x80U) != 0U)
         {
+            rt_size_t byte_index;
+
             if ((ch & 0xF0U) == 0xF0U)
             {
                 copy_len = 4U;
@@ -147,6 +204,20 @@ static void app_ui_copy_visible_text(char *dst, rt_size_t dst_len, const char *s
             else if ((ch & 0xC0U) == 0xC0U)
             {
                 copy_len = 2U;
+            }
+
+            for (byte_index = 0U; byte_index < copy_len; byte_index++)
+            {
+                if (src[byte_index] == '\0')
+                {
+                    copy_len = 0U;
+                    break;
+                }
+            }
+
+            if (copy_len == 0U)
+            {
+                break;
             }
 
             if ((used + copy_len) >= dst_len)
@@ -195,6 +266,21 @@ static bool app_ui_float_changed(float lhs, float rhs)
     }
 
     return (delta > 0.001f);
+}
+
+static rt_int16_t app_ui_clamp_i16(rt_int16_t value, rt_int16_t min_value, rt_int16_t max_value)
+{
+    if (value < min_value)
+    {
+        return min_value;
+    }
+
+    if (value > max_value)
+    {
+        return max_value;
+    }
+
+    return value;
 }
 
 static bool app_ui_runtime_changed(void)
@@ -261,6 +347,11 @@ static void app_ui_refresh_dynamic_content(bool force_refresh)
     else if (page == &StatusMenuPage)
     {
         app_ui_refresh_status_items();
+        content_updated = true;
+    }
+    else if (page == &s_simple_mode_page)
+    {
+        app_ui_refresh_simple_mode_items();
         content_updated = true;
     }
     else if (page == &PCControlMenuPage)
@@ -534,6 +625,99 @@ static void app_ui_request_todo_pull(void)
     (void)device_net_service_request_todo_pull();
 }
 
+static void app_ui_refresh_simple_mode_items(void)
+{
+    sensor_service_status_t sensor_status;
+    todo_snapshot_t snapshot;
+    const todo_item_t *item;
+    char visible_title[32];
+
+    sensor_service_get_status(&sensor_status);
+    if (sensor_status.has_sample != RT_FALSE)
+    {
+        rt_snprintf(s_simple_lines[0],
+                    sizeof(s_simple_lines[0]),
+                    "温/湿: %ld.%ldC  %ld.%ld%%",
+                    (long)(sensor_status.sample.temperature_x10 / 10),
+                    labs(sensor_status.sample.temperature_x10 % 10),
+                    (long)(sensor_status.sample.humidity_x10 / 10),
+                    labs(sensor_status.sample.humidity_x10 % 10));
+    }
+    else
+    {
+        rt_snprintf(s_simple_lines[0], sizeof(s_simple_lines[0]), "温/湿: --.-C  --.-%%");
+    }
+
+    todo_snapshot_get(&snapshot);
+    if (snapshot.count == 0U)
+    {
+        rt_snprintf(s_simple_lines[1], sizeof(s_simple_lines[1]), "待办: 长按获取待办");
+    }
+    else
+    {
+        if (s_simple_todo_index >= snapshot.count)
+        {
+            s_simple_todo_index = 0U;
+        }
+
+        item = &snapshot.items[s_simple_todo_index];
+        app_ui_copy_visible_text(visible_title, sizeof(visible_title), item->title);
+        rt_snprintf(s_simple_lines[1],
+                    sizeof(s_simple_lines[1]),
+                    "%s %lu/%lu: %s",
+                    (item->completed != RT_FALSE) ? "已完成" : "待办",
+                    (unsigned long)(s_simple_todo_index + 1U),
+                    (unsigned long)snapshot.count,
+                    visible_title);
+    }
+
+    rt_snprintf(s_simple_lines[2], sizeof(s_simple_lines[2]), "%s", APP_UI_TXT_VOLUME_ADJUST);
+    rt_snprintf(s_simple_lines[3], sizeof(s_simple_lines[3]), "%s", APP_UI_TXT_BRIGHTNESS_ADJUST);
+
+    s_simple_mode_items[0].General_item_text = s_simple_lines[0];
+    s_simple_mode_items[0].General_callback = RT_NULL;
+    s_simple_mode_items[0].General_SubMenuPage = RT_NULL;
+    s_simple_mode_items[1].General_item_text = s_simple_lines[1];
+    s_simple_mode_items[1].General_callback = RT_NULL;
+    s_simple_mode_items[1].General_SubMenuPage = RT_NULL;
+    s_simple_mode_items[2].General_item_text = s_simple_lines[2];
+    s_simple_mode_items[2].General_callback = RT_NULL;
+    s_simple_mode_items[2].General_SubMenuPage = RT_NULL;
+    s_simple_mode_items[3].General_item_text = s_simple_lines[3];
+    s_simple_mode_items[3].General_callback = RT_NULL;
+    s_simple_mode_items[3].General_SubMenuPage = RT_NULL;
+    s_simple_mode_items[4].General_item_text = RT_NULL;
+    s_simple_mode_items[4].General_callback = RT_NULL;
+    s_simple_mode_items[4].General_SubMenuPage = RT_NULL;
+}
+
+static rt_uint8_t app_ui_simple_get_active_menu_id(void)
+{
+    return (rt_uint8_t)(APP_UI_SIMPLE_ITEM_TODO + s_simple_focus);
+}
+
+static void app_ui_simple_sync_selection(void)
+{
+    rt_uint8_t active_menu_id = app_ui_simple_get_active_menu_id();
+
+    if (CurrentMenuPage != &s_simple_mode_page)
+    {
+        return;
+    }
+
+    CurrentMenuPage->_ActiveMenuID = active_menu_id;
+    CurrentMenuPage->_Slot = active_menu_id;
+}
+
+static void app_ui_simple_apply_page_style(void)
+{
+    app_ui_apply_runtime_to_page(&s_simple_mode_page);
+    s_simple_mode_page.General_FontSize = OLED_UI_FONT_12;
+    s_simple_mode_page.General_LineSpace = 3;
+    s_simple_mode_page.General_ParentMenuPage = RT_NULL;
+    s_simple_mode_page.List_StartPointY = 1;
+}
+
 static void app_ui_refresh_todo_items(void)
 {
     todo_snapshot_t snapshot;
@@ -609,6 +793,42 @@ static void app_ui_toggle_todo_item(void)
     (void)device_net_service_queue_todo_report(&change);
 }
 
+static void app_ui_simple_toggle_todo_item(void)
+{
+    todo_snapshot_t snapshot;
+    todo_snapshot_change_t change;
+
+    todo_snapshot_get(&snapshot);
+    app_ui_simple_mark_todo_interaction();
+    if (snapshot.count == 0U)
+    {
+        (void)device_net_service_request_todo_pull();
+        app_ui_refresh_simple_mode_items();
+        oled_ui_request_current_page_refresh();
+        return;
+    }
+
+    if (s_simple_todo_index >= snapshot.count)
+    {
+        s_simple_todo_index = 0U;
+    }
+
+    if (todo_snapshot_toggle_completed(s_simple_todo_index, &change) != RT_EOK)
+    {
+        return;
+    }
+
+    if ((change.item.completed != RT_FALSE) && (snapshot.count > 1U))
+    {
+        app_ui_simple_cycle_todo(1, snapshot.count);
+    }
+
+    app_ui_simple_mark_todo_interaction();
+    (void)device_net_service_queue_todo_report(&change);
+    app_ui_refresh_simple_mode_items();
+    oled_ui_request_current_page_refresh();
+}
+
 static void app_ui_refresh_wifi_info_items(void)
 {
     esp01s_status_t wifi_status;
@@ -642,7 +862,7 @@ static void app_ui_refresh_wifi_info_items(void)
                 APP_UI_TXT_WIFI_IP ": %s",
                 ip_text);
 
-    if ((wifi_status.connected != RT_FALSE) || (wifi_status.rssi != 0))
+    if (wifi_status.rssi != 0)
     {
         rt_snprintf(s_wifi_info_lines[3],
                     sizeof(s_wifi_info_lines[3]),
@@ -913,12 +1133,382 @@ static void app_ui_update_pc_delta(void)
     }
 }
 
-/**
- * @brief 应用当前选中的快捷键预设
- * @param 无
- * @return 无
- * @note 预设保存成功后会立刻返回上一级页面，减少一次手动返回操作。
- */
+/* Initialize PA0 as the active-high simple mode switch key. */
+static void app_ui_simple_key_init(void)
+{
+    rt_pin_mode(APP_UI_SIMPLE_KEY_PIN, PIN_MODE_INPUT_PULLDOWN);
+    s_simple_key_stable_level = (rt_uint8_t)(rt_pin_read(APP_UI_SIMPLE_KEY_PIN) ? 1U : 0U);
+    s_simple_key_last_raw_level = s_simple_key_stable_level;
+    s_simple_key_active_level = 1U;
+    s_simple_key_change_tick = rt_tick_get();
+    s_simple_key_inited = RT_TRUE;
+}
+
+static rt_bool_t app_ui_simple_key_pressed(void)
+{
+    rt_uint8_t raw_level;
+    rt_tick_t now_tick;
+
+    if (s_simple_key_inited == RT_FALSE)
+    {
+        app_ui_simple_key_init();
+    }
+
+    raw_level = (rt_uint8_t)(rt_pin_read(APP_UI_SIMPLE_KEY_PIN) ? 1U : 0U);
+    now_tick = rt_tick_get();
+    if (raw_level != s_simple_key_last_raw_level)
+    {
+        s_simple_key_last_raw_level = raw_level;
+        s_simple_key_change_tick = now_tick;
+        return RT_FALSE;
+    }
+
+    if ((raw_level != s_simple_key_stable_level) &&
+        ((now_tick - s_simple_key_change_tick) >= rt_tick_from_millisecond(APP_UI_SIMPLE_DEBOUNCE_MS)))
+    {
+        s_simple_key_stable_level = raw_level;
+        return (raw_level == s_simple_key_active_level) ? RT_TRUE : RT_FALSE;
+    }
+
+    return RT_FALSE;
+}
+
+static void app_ui_simple_enter_mode(void)
+{
+    s_simple_saved_page = CurrentMenuPage;
+    app_ui_simple_apply_page_style();
+    s_simple_mode = RT_TRUE;
+    s_simple_focus = 0U;
+    s_simple_todo_last_cycle_tick = rt_tick_get();
+    s_simple_todo_hold_tick = s_simple_todo_last_cycle_tick;
+    app_ui_refresh_simple_mode_items();
+    CurrentWindow = RT_NULL;
+    CurrentMenuPage = &s_simple_mode_page;
+    oled_ui_init_current_page();
+    app_ui_simple_sync_selection();
+    oled_ui_request_current_page_refresh();
+    (void)oled_ui_encoder_get_delta();
+    (void)oled_ui_consume_enter_event();
+    (void)oled_ui_consume_back_event();
+}
+
+static void app_ui_simple_exit_mode(void)
+{
+    s_simple_mode = RT_FALSE;
+    CurrentWindow = RT_NULL;
+    CurrentMenuPage = (s_simple_saved_page != RT_NULL) ? s_simple_saved_page : &MainMenuPage;
+    s_simple_saved_page = RT_NULL;
+    app_ui_apply_runtime_to_page(CurrentMenuPage);
+    oled_ui_init_current_page();
+    oled_ui_request_current_page_refresh();
+    (void)oled_ui_consume_enter_event();
+    (void)oled_ui_consume_back_event();
+}
+
+static void app_ui_simple_switch_mode(void)
+{
+    if (s_simple_mode == RT_FALSE)
+    {
+        app_ui_simple_enter_mode();
+    }
+    else
+    {
+        app_ui_simple_exit_mode();
+    }
+}
+
+static void app_ui_simple_cycle_todo(rt_int16_t delta, rt_uint32_t todo_count)
+{
+    if (todo_count == 0U)
+    {
+        s_simple_todo_index = 0U;
+        return;
+    }
+
+    while (delta > 0)
+    {
+        s_simple_todo_index = (s_simple_todo_index + 1U) % todo_count;
+        delta--;
+    }
+
+    while (delta < 0)
+    {
+        s_simple_todo_index = (s_simple_todo_index == 0U) ? (todo_count - 1U) : (s_simple_todo_index - 1U);
+        delta++;
+    }
+}
+
+static void app_ui_simple_mark_todo_interaction(void)
+{
+    rt_tick_t now_tick = rt_tick_get();
+
+    s_simple_todo_last_cycle_tick = now_tick;
+    s_simple_todo_hold_tick = now_tick;
+}
+
+static void app_ui_simple_cycle_todo_once(rt_int16_t direction, rt_bool_t long_hold)
+{
+    todo_snapshot_t snapshot;
+
+    todo_snapshot_get(&snapshot);
+    if (snapshot.count <= 1U)
+    {
+        return;
+    }
+
+    app_ui_simple_cycle_todo(direction, snapshot.count);
+    app_ui_simple_mark_todo_interaction();
+    RT_UNUSED(long_hold);
+}
+
+static void app_ui_simple_update_todo_cycle(void)
+{
+    todo_snapshot_t snapshot;
+    rt_tick_t now_tick;
+    rt_tick_t cycle_ticks = rt_tick_from_millisecond(APP_UI_SIMPLE_TODO_CYCLE_MS);
+    rt_tick_t hold_ticks = rt_tick_from_millisecond(APP_UI_SIMPLE_TODO_HOLD_MS);
+
+    todo_snapshot_get(&snapshot);
+    if (snapshot.count <= 1U)
+    {
+        return;
+    }
+
+    now_tick = rt_tick_get();
+    if ((now_tick - s_simple_todo_hold_tick) < hold_ticks)
+    {
+        return;
+    }
+
+    if ((now_tick - s_simple_todo_last_cycle_tick) < cycle_ticks)
+    {
+        return;
+    }
+
+    app_ui_simple_cycle_todo(1, snapshot.count);
+    app_ui_simple_mark_todo_interaction();
+}
+
+static void app_ui_simple_handle_encoder(void)
+{
+    rt_int16_t delta = oled_ui_encoder_get_delta();
+
+    if (delta != 0)
+    {
+        if (s_simple_focus == 0U)
+        {
+            app_ui_simple_cycle_todo_once(delta, RT_TRUE);
+        }
+        else if (s_simple_focus == 1U)
+        {
+            (void)device_usb_service_adjust(delta, 0);
+            s_simple_volume_delta = app_ui_clamp_i16((rt_int16_t)(s_simple_volume_delta + delta),
+                                                     APP_UI_PC_DELTA_MIN,
+                                                     APP_UI_PC_DELTA_MAX);
+        }
+        else
+        {
+            (void)device_usb_service_adjust(0, delta);
+            s_simple_brightness_delta = app_ui_clamp_i16((rt_int16_t)(s_simple_brightness_delta + delta),
+                                                         APP_UI_PC_DELTA_MIN,
+                                                         APP_UI_PC_DELTA_MAX);
+        }
+    }
+
+    if (oled_ui_consume_enter_event() != RT_FALSE)
+    {
+        s_simple_focus = (rt_uint8_t)((s_simple_focus + 1U) % APP_UI_SIMPLE_FOCUS_COUNT);
+        app_ui_simple_sync_selection();
+    }
+}
+
+#if 0
+static void app_ui_simple_render_sensor_card(void)
+{
+    sensor_service_status_t sensor_status;
+    char line[48];
+    int16_t x;
+    int16_t y;
+    uint8_t chinese_font = oled_ui_get_font(OLED_UI_FONT_12, CHINESE);
+    uint8_t ascii_font = oled_ui_get_font(OLED_UI_FONT_12, ASCII);
+
+    sensor_service_get_status(&sensor_status);
+    if (sensor_status.has_sample == RT_FALSE)
+    {
+        rt_snprintf(line, sizeof(line), "温 --.-C  湿 --.-%%");
+    }
+    else
+    {
+        rt_snprintf(line,
+                    sizeof(line),
+                    "温 %ld.%ldC  湿 %ld.%ld%%",
+                    (long)(sensor_status.sample.temperature_x10 / 10),
+                    labs(sensor_status.sample.temperature_x10 % 10),
+                    (long)(sensor_status.sample.humidity_x10 / 10),
+                    labs(sensor_status.sample.humidity_x10 % 10));
+    }
+
+    x = (int16_t)s_simple_sensor_card.CurrentArea.X + 2;
+    y = (int16_t)s_simple_sensor_card.CurrentArea.Y + 1;
+    OLED_ShowMixStringArea((int16_t)s_simple_sensor_card.CurrentArea.X,
+                           (int16_t)s_simple_sensor_card.CurrentArea.Y,
+                           (int16_t)s_simple_sensor_card.CurrentArea.Width,
+                           (int16_t)s_simple_sensor_card.CurrentArea.Height,
+                           x,
+                           y,
+                           line,
+                           chinese_font,
+                           ascii_font);
+}
+
+static void app_ui_simple_render_todo_card(void)
+{
+    todo_snapshot_t snapshot;
+    const todo_item_t *item;
+    char title[48];
+    char line[96];
+    int16_t x;
+    int16_t y;
+    uint8_t chinese_font = oled_ui_get_font(OLED_UI_FONT_12, CHINESE);
+    uint8_t ascii_font = oled_ui_get_font(OLED_UI_FONT_12, ASCII);
+
+    todo_snapshot_get(&snapshot);
+    if (snapshot.count == 0U)
+    {
+        rt_snprintf(line, sizeof(line), "待办 0/0 按下获取待办");
+    }
+    else
+    {
+        if (s_simple_todo_index >= snapshot.count)
+        {
+            s_simple_todo_index = 0U;
+        }
+
+        item = &snapshot.items[s_simple_todo_index];
+        app_ui_copy_visible_text(title, sizeof(title), item->title);
+        rt_snprintf(line,
+                    sizeof(line),
+                    "%s %lu/%lu %s",
+                    (item->completed != RT_FALSE) ? "已完成" : "待办",
+                    (unsigned long)(s_simple_todo_index + 1U),
+                    (unsigned long)snapshot.count,
+                    title);
+    }
+
+    x = (int16_t)s_simple_todo_card.CurrentArea.X + 6;
+    y = (int16_t)s_simple_todo_card.CurrentArea.Y + 1 + app_ui_simple_round_distance(&s_simple_todo_offset_anim);
+    OLED_ShowMixStringArea((int16_t)s_simple_todo_card.CurrentArea.X + 6,
+                           (int16_t)s_simple_todo_card.CurrentArea.Y + 1,
+                           (int16_t)s_simple_todo_card.CurrentArea.Width - 12,
+                           (int16_t)s_simple_todo_card.CurrentArea.Height - 2,
+                           x,
+                           y,
+                           line,
+                           chinese_font,
+                           ascii_font);
+}
+
+static void app_ui_simple_render_control_card(const oled_ui_anim_area_t *card,
+                                              const char *label,
+                                              const oled_ui_anim_distance_t *value_anim)
+{
+    char line[32];
+    int16_t x;
+    int16_t y;
+    uint8_t chinese_font = oled_ui_get_font(OLED_UI_FONT_12, CHINESE);
+    uint8_t ascii_font = oled_ui_get_font(OLED_UI_FONT_12, ASCII);
+
+    if ((card == RT_NULL) || (label == RT_NULL) || (value_anim == RT_NULL))
+    {
+        return;
+    }
+
+    rt_snprintf(line, sizeof(line), "%s %+d", label, (int)app_ui_simple_round_distance(value_anim));
+    x = (int16_t)card->CurrentArea.X + 6;
+    y = (int16_t)card->CurrentArea.Y + 1;
+    OLED_ShowMixStringArea((int16_t)card->CurrentArea.X + 4,
+                           (int16_t)card->CurrentArea.Y,
+                           (int16_t)card->CurrentArea.Width - 8,
+                           (int16_t)card->CurrentArea.Height,
+                           x,
+                           y,
+                           line,
+                           chinese_font,
+                           ascii_font);
+}
+
+static void app_ui_simple_render_focus(void)
+{
+    int16_t x = (int16_t)s_simple_focus_card.CurrentArea.X;
+    int16_t y = (int16_t)s_simple_focus_card.CurrentArea.Y;
+    int16_t width = (int16_t)s_simple_focus_card.CurrentArea.Width;
+    int16_t height = (int16_t)s_simple_focus_card.CurrentArea.Height;
+
+    if ((width < 6) || (height < 6))
+    {
+        return;
+    }
+
+    oled_ui_reverse_coordinate(x, y, width, height, REVERSE_ROUNDRECTANGLE);
+}
+
+static void app_ui_simple_render(void)
+{
+    OLED_Clear();
+    app_ui_simple_render_sensor_card();
+    app_ui_simple_render_todo_card();
+    app_ui_simple_render_control_card(&s_simple_volume_card, "音量", &s_simple_volume_value_anim);
+    app_ui_simple_render_control_card(&s_simple_brightness_card, "亮度", &s_simple_brightness_value_anim);
+    app_ui_simple_render_focus();
+    OLED_Update();
+}
+
+#endif
+rt_bool_t app_ui_simple_mode_task(void)
+{
+    if (app_ui_simple_key_pressed() != RT_FALSE)
+    {
+        app_ui_simple_switch_mode();
+    }
+
+    if (s_simple_mode == RT_FALSE)
+    {
+        return RT_FALSE;
+    }
+
+    app_ui_simple_apply_page_style();
+    if (CurrentMenuPage == &s_simple_mode_page)
+    {
+        app_ui_simple_sync_selection();
+        if (CurrentWindow == RT_NULL)
+        {
+            app_ui_simple_handle_encoder();
+            if (oled_ui_consume_back_event() != RT_FALSE)
+            {
+                if (s_simple_focus == 0U)
+                {
+                    app_ui_simple_toggle_todo_item();
+                }
+                else
+                {
+                    app_ui_simple_exit_mode();
+                    return RT_FALSE;
+                }
+            }
+        }
+    }
+
+    app_ui_simple_update_todo_cycle();
+    app_ui_refresh_simple_mode_items();
+    if (CurrentMenuPage == &s_simple_mode_page)
+    {
+        app_ui_simple_sync_selection();
+        oled_ui_request_current_page_refresh();
+    }
+
+    return RT_FALSE;
+}
+
 /* Apply the selected shortcut preset to the current shortcut slot.
  * Parameters: none.
  * Return: none.
@@ -1247,6 +1837,7 @@ void app_ui_refresh_pages(void)
     MenuPage *runtime_pages[] = {
         &MainMenuPage,
         &TodoMenuPage,
+        &s_simple_mode_page,
         &WiFiMenuPage,
         &WiFiInfoMenuPage,
         &WiFiScanMenuPage,
@@ -1279,6 +1870,10 @@ void app_ui_refresh_pages(void)
     else if (CurrentMenuPage == &TodoMenuPage)
     {
         app_ui_clamp_cursor(&TodoMenuPage, s_visible_todo_count);
+    }
+    else if (CurrentMenuPage == &s_simple_mode_page)
+    {
+        app_ui_clamp_cursor(&s_simple_mode_page, 4U);
     }
     else if (CurrentMenuPage == &WiFiMenuPage)
     {
