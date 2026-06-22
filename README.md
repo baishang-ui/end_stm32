@@ -221,6 +221,5 @@ scons                   # GCC
 
 ## 📧 联系方式
 
-维护人：[yuanzihao](https://github.com/zihao-yuan/)
-邮箱：[y@yzh.email](mailto:y@yzh.email)
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+维护人：[BaiShang](https://github.com/BaiShang1337)
+邮箱：[BaiShang1337@outlook.com](mailto:BaiShang1337@outlook.com)
