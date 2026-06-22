@@ -1,10 +1,10 @@
-# 立创天空星 STM32F407 USB 智能旋钮控制器
+# 智能桌面盒子
 
 [![MCU](https://img.shields.io/badge/MCU-STM32F407VET6-blue)](https://www.st.com)
 [![RTOS](https://img.shields.io/badge/RTOS-RT--Thread%205.1.0-green)](https://www.rt-thread.org/)
 [![Board](https://img.shields.io/badge/Board-立创天空星-orange)](https://lckfb.com)
 
-一个基于立创天空星 STM32F407VET6 开发板的开源 USB HID 智能旋钮控制器项目。通过物理旋钮精确控制电脑音量与亮度，并集成了环境传感器、Wi-Fi 联网和 OLED 交互界面。
+基于立创天空星 STM32F407VET6 开发板的开源智能桌面盒子项目。通过物理旋钮精确控制电脑音量与亮度，并集成了环境传感器、Wi-Fi 联网和 OLED 交互界面。
 
 ![立创天空星开发板](figures/board.png)
 
