@@ -221,5 +221,5 @@ scons                   # GCC
 
 ## 📧 联系方式
 
-维护人：[BaiShang](https://github.com/BaiShang1337)
+维护人：[BaiShang](https://github.com/baishang-ui)
 邮箱：[BaiShang1337@outlook.com](mailto:BaiShang1337@outlook.com)
