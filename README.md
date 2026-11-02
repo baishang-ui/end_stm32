@@ -1,10 +1,14 @@
-# 智能桌面盒子
+# 智能桌面盒子 · STM32 固件
 
 [![MCU](https://img.shields.io/badge/MCU-STM32F407VET6-blue)](https://www.st.com)
 [![RTOS](https://img.shields.io/badge/RTOS-RT--Thread%205.1.0-green)](https://www.rt-thread.org/)
 [![Board](https://img.shields.io/badge/Board-立创天空星-orange)](https://lckfb.com)
 
 基于立创天空星 STM32F407VET6 开发板的开源智能桌面盒子项目。通过物理旋钮精确控制电脑音量与亮度，并集成了环境传感器、Wi-Fi 联网和 OLED 交互界面。
+
+本仓库是完整软硬件系统中的设备端。配套项目为 [微信小程序](https://github.com/baishang-ui/wechat_code)（监测、待办与移动交互）和 [Node.js 后端](https://github.com/baishang-ui/backend)（持久化、推送与设备同步）。三个仓库描述同一系统的不同组件。
+
+> **安全与验证边界**：运行前阅读 [安全说明](SECURITY.md)，检查并替换历史云端与网络配置。本文描述现有代码与原项目功能；本次文档整理没有重新烧录、验证实物或重新编译所有工具链。表中的完成状态是原项目记录，不代表本次全部复测。
 
 ![立创天空星开发板](figures/board.png)
 
@@ -131,10 +135,13 @@ scons --target=mdk5
 
 **GCC**
 ```bash
-# 配置编译器路径 (rtconfig.py)
+# 先在 RT-Thread ENV 环境中设置 RTT_EXEC_PATH，指向自己的 Arm GCC bin 目录
+# rtconfig.py 中保存的开发机默认路径不能直接用于其他电脑
 # 构建
 scons
 ```
+
+可通过环境变量 `RTT_CC` 选择工具链、`RTT_EXEC_PATH` 指定可执行目录；实际支持的分支以 `rtconfig.py` 为准。编译还需要 RT-Thread ENV/SCons、对应 Arm 交叉编译器、板级文件和工程依赖。本仓库不是可用普通桌面 C 编译器直接构建的程序。
 
 **IAR**
 ```bash
@@ -162,7 +169,7 @@ scons --target=iar
 4. 旋转旋钮控制电脑音量/亮度
 5. 长按旋钮返回
 
-> **适用性说明**：音量控制在所有操作系统上均可使用。亮度控制在笔记本内置屏幕上通常可用，台式机外接显示器可能需要配合上位机程序使用。
+> **适用性说明**：音量和亮度控制依赖主机对 USB HID 用法的支持，应在目标操作系统和显示设备上实测。外接显示器可能需要上位机程序，不能将一个设备上的结果推广为所有操作系统均支持。
 
 ## 🔧 进阶配置
 
@@ -217,7 +224,7 @@ scons                   # GCC
 
 ## 📄 许可证
 
-本项目硬件设计与软件代码均全面开源。
+仓库公开可读；RT-Thread、芯片厂商库及第三方组件各自保留其许可证与版权声明。公开可读不等于可以推断所有项目自编部分具有统一再分发许可，具体授权请联系维护者确认。
 
 ## 📧 联系方式
 
